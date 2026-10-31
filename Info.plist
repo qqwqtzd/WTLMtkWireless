@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>MtkWlan</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.watchthelight.MtkWlan</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>MtkWlan</string>
+	<key>CFBundlePackageType</key>
+	<string>KEXT</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.12.1</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>0.12.1</string>
+	<key>IOKitPersonalities</key>
+	<dict>
+		<key>MT7925 PCIe</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>org.watchthelight.MtkWlan</string>
+			<key>IOClass</key>
+			<string>MtkWlan</string>
+			<key>IOPCIPrimaryMatch</key>
+			<string>0x792514c3 0x071714c3</string>
+			<key>IOProviderClass</key>
+			<string>IOPCIDevice</string>
+			<key>IOUserClientClass</key>
+			<string>MtkWlanUserClient</string>
+			<key>MtkAutoNetworks</key>
+			<array/>
+			<key>MtkAutoOpenSsids</key>
+			<array>
+				<string>Boingo 5GHz</string>
+				<string>Boingo</string>
+			</array>
+			<key>MtkDataRate</key>
+			<integer>0</integer>
+			<key>MtkFrontEnd</key>
+			<string>ethernet</string>
+			<key>MtkHt</key>
+			<true/>
+			<key>MtkMaxBw</key>
+			<integer>2</integer>
+			<key>MtkPower</key>
+			<true/>
+			<key>MtkRxBa</key>
+			<true/>
+			<key>MtkStallSec</key>
+			<integer>8</integer>
+			<key>MtkTxBa</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>OSBundleCompatibleVersion</key>
+	<string>0.10.0</string>
+	<key>OSBundleLibraries</key>
+	<dict>
+		<key>com.apple.iokit.IONetworkingFamily</key>
+		<string>1.0.0b1</string>
+		<key>com.apple.iokit.IOPCIFamily</key>
+		<string>2.9</string>
+		<key>com.apple.kpi.bsd</key>
+		<string>14.0</string>
+		<key>com.apple.kpi.iokit</key>
+		<string>14.0</string>
+		<key>com.apple.kpi.libkern</key>
+		<string>14.0</string>
+		<key>com.apple.kpi.mach</key>
+		<string>14.0</string>
+	</dict>
+	<key>OSBundleRequired</key>
+	<string>Network-Root</string>
+</dict>
+</plist>
