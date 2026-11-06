@@ -371,6 +371,8 @@ int MtkWlan::roc(bool acquire) {
         t[13] = tgtCh;
         t[15] = 0;                              // reqtype JOIN
         put32(t + 16, 5000);
+        // MT7927 firmware does not grant a ROC for 0xfe in this request format; keep 0xff.
+        // The 5GHz auth timeout is still under investigation (2.4GHz A/B test next).
         t[20] = 0xff;
         return uniCmd(UNI_ROC, req, sizeof(req), false, nullptr, 0, nullptr);
     }
@@ -498,6 +500,14 @@ bool MtkWlan::joinStart(int idx) {
     wantFc = 0;
     mgmtLen = 0;
     parseAp();
+    if (isMt7927 && tgtCh > 14) {
+        // Linux mt7927_reconfig_band (mt7925_assign_vif_chanctx): remove the vif, set band_idx,
+        // add it again. Without this the firmware's DEV_INFO keeps band 0xff while the BSS/ROC
+        // records are on band 1, and 5GHz auth frames never go out on the granted channel.
+        uint8_t band = 1;
+        setNum("MtkW5DevBandOff", (uint32_t)devInfo(false, band));
+        setNum("MtkW5DevBandOn", (uint32_t)devInfo(true, band));
+    }
     hwPrep();
     setNum("MtkW5ApRates", (uint32_t)apSupp << 8 | apBasic);
     setNum("MtkW5BssAdd", (uint32_t)bssInfo(false));

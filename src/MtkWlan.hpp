@@ -138,7 +138,7 @@ private:
     void pollRx();
     void mtkParseFrame(const uint8_t *p, uint32_t len);
     int hwInit(bool keepMac = false);
-    int devInfo(bool enable);
+    int devInfo(bool enable, uint8_t band = 0xff);
     int scanStart();
     void scanService();
     void bssAge();
@@ -422,6 +422,7 @@ private:
     uint32_t deauths = 0, lastDeauth = 0, rejoins = 0, keepalives = 0;
     uint32_t rxTypes[32] = {};
     uint32_t txInFlight = 0, txInFlightPeak = 0, txCapped = 0, txQueued = 0;
+    uint32_t lastTxd1 = 0;                     // TXD1 of the most recent frame (TGID/HDR_FORMAT diagnostics)
     bool w6Pass = false;
 
     // W8 HT/VHT: the AP's capabilities from its beacon, and what the association settled on

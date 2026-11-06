@@ -139,10 +139,22 @@ void MtkWlan::noteEvent(const uint8_t *p, uint32_t len) {
     if (len < 44) { evShort++; return; }
     evCount[p[36]]++;
     if (p[36] == EVENT_SCAN_DONE) scanDone = true;
-    if (p[36] == 0x27 && len >= 55) {         // MCU_UNI_EVENT_ROC grant: TLV at 48 {tag, len, bss_idx, tokenid, status}
+    if (p[36] == 0x27 && len >= 55) {         // MCU_UNI_EVENT_ROC grant: TLV at 48
         rocTok = p[53];
         rocStatus = p[54];
         rocGrant = true;
+        // mt7925_roc_grant_tlv: primarychannel 55, rfband 57, width 58, center 59,
+        // reqtype 61, dbdcband 62. Publish them to see which band the firmware granted.
+        setNum("MtkRocCh", p[55]);
+        setNum("MtkRocRfBand", p[57]);
+        setNum("MtkRocWidth", p[58]);
+        setNum("MtkRocCenter", p[59]);
+        setNum("MtkRocReqtype", p[61]);
+        if (len >= 64) setNum("MtkRocDbdcBand", p[62]);
+        char hx[3 * 64 + 1];
+        uint32_t n = len < 64 ? len : 64, k = 0;
+        for (uint32_t i = 0; i < n; i++) k += snprintf(hx + k, sizeof(hx) - k, "%02x", p[i]);
+        setProperty("MtkRocGrantHex", hx);
     }
     if (evDumps < 4 && p[36] != 0x01) {       // 0x01 = command results, already counted
         char key[24], hex[3 * 64 + 1];
@@ -444,10 +456,10 @@ void MtkWlan::publishScan() {
 // The station interface (mt76_connac_mcu_uni_add_dev, NL80211_IFTYPE_STATION): DEV_INFO with our own MAC, then the
 // idle BSS_INFO basic record. The firmware accepts unicast only for this address, so a station address change
 // (coreSetMac) removes the interface and adds it again with the new one, the way Linux re-adds the vif.
-int MtkWlan::devInfo(bool enable) {
+int MtkWlan::devInfo(bool enable, uint8_t band) {
     uint8_t dev[16] = {};
     dev[0] = 0;                 // omac_idx
-    dev[1] = 0xff;              // band_idx (mt7925 uses 0xff)
+    dev[1] = band;              // band_idx: 0xff auto for MT7925, 0/1 for MT7927
     put16(dev + 4, 0);          // DEV_INFO_ACTIVE
     put16(dev + 6, 12);
     dev[8] = enable ? 1 : 0;    // active
@@ -460,7 +472,8 @@ int MtkWlan::devInfo(bool enable) {
     put16(b + 0, 0);            // UNI_BSS_INFO_BASIC
     put16(b + 2, 32);
     b[4] = enable ? 1 : 0;      // active
-    b[7] = isMt7927 ? 0 : 0xff; // band_idx: MT7927 uses 0 (2.4 GHz) / 1 (5/6 GHz); 0 for the idle record
+    // band_idx: MT7927 uses 0 (2.4 GHz) / 1 (5/6 GHz). 0xff (auto) keeps the old idle value 0.
+    b[7] = isMt7927 ? (band == 0xff ? 0 : band) : 0xff;
     put32(b + 8, 0x10001);      // CONNECTION_INFRA_STA
     b[12] = 1;                  // conn_state
     put16(b + 20, 19);          // bmc_tx_wlan_idx (itlmt7925 value, WTBL reserved)
@@ -526,8 +539,8 @@ int MtkWlan::hwInit(bool keepMac) {
     setNum("MtkW4DmaDcr0", rr(dmaDcr0(0)));
     setNum("MtkW4Rfcr", rr(rmacBase(0)));
 
-    // 3b. MT7927: enable dual-band concurrency (mt7925_mcu_set_dbdc, UNI_MBMC_SETTING). Linux logs and
-    // continues if this fails, so a failure here is only published.
+    // 3b. MT7927 dual-band concurrency (mt7925_mcu_set_dbdc, UNI_MBMC_SETTING).
+    // DBDC must stay on, otherwise the firmware scans only 2.4GHz and 5GHz SSIDs disappear.
     if (isMt7927) {
         uint8_t dbdc[12] = {0, 0, 0, 0, 0, 0, 8, 0, 1, 0, 0, 0};
         setNum("MtkW4Dbdc", (uint32_t)uniCmd(0x28, dbdc, sizeof(dbdc), false, nullptr, 0, nullptr));

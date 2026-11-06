@@ -92,8 +92,14 @@ void MtkWlan::txQueue(uint32_t flen, uint8_t qIdx, uint8_t ftype, uint8_t stype,
     uint32_t pa = txData.bufs.iova + slot * txData.bufSize;
     bzero(w, 128);
     put32(w + 0, (flen + 32) | (0u << 23) | ((uint32_t)qIdx << 25));            // TX_BYTES, PKT_FMT CT, Q_IDX
-    put32(w + 4, AP_WCID | (2u << 14) | ((hdrLen / 2) << 16) | ((uint32_t)(tid & 0xf) << 21) |
-                 (rate ? 1u << 31 : 0));                                       // WLAN_IDX, HDR 802.11, HDR_INFO, TID, FIXED_RATE
+    uint32_t txd1 = AP_WCID | (2u << 14) | ((hdrLen / 2) << 16) | ((uint32_t)(tid & 0xf) << 21) |
+                    (rate ? 1u << 31 : 0);                                     // WLAN_IDX, HDR 802.11, HDR_INFO, TID, FIXED_RATE
+    // mt76_connac3_mac.h: MT_TXD1_TGID is GENMASK(13, 12) (not the connac2 BIT(30)).
+    // mt7925_mac_write_txwi sets it from mvif->band_idx; on MT7927 that is 1 for 5/6 GHz.
+    // Without it the firmware queues every 5GHz frame on band 0, so auth never reaches the AP.
+    if (isMt7927 && tgtCh > 14) txd1 |= 1u << 12;
+    put32(w + 4, txd1);
+    lastTxd1 = txd1;
     put32(w + 8, ((uint32_t)ftype << 4) | stype);                                 // FRAME_TYPE, SUB_TYPE
     // BA_DISABLE with TX status or a fixed rate, as at the end of mt7925_mac_write_txwi; PROTECT_FRAME with a key
     put32(w + 12, (15u << 11) | (mcast ? 1u << 4 : 0) | ((status || rate) ? 1u << 28 : 0) | (protect ? 1u << 1 : 0));
@@ -562,6 +568,8 @@ void MtkWlan::publishW6() {
     setNum("MtkW9TxFreeHeaders", tfHeaders);
     setNum("MtkW9TxFreeAttempts", tfAttempts);
     setNum("MtkW9TxFreeStatErr", tfStatErr);
+    setNum("MtkW9Txd1", lastTxd1);
+    setNum("MtkW9TxCh", tgtCh);
     char b[200];
     snprintf(b, sizeof(b), "rx sessions %u buffered %u dup %u timeout %u bar %u delba %u | tx state %u req %u status %u win %u ssn %u | rc %d",
              baRxSessions, baBuffered, baDup, baTimeoutRelease, barRx, delbaRx, txBaState, txBaRequests, baTxStatus, txBaWin,
