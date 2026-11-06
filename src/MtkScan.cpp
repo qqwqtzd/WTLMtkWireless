@@ -226,10 +226,8 @@ void MtkWlan::pollRx() {
             const uint8_t *p = rxPoll(rxWa, &len);
             if (!p) break;
             rxWaPackets++;
-            if (rxKind(p, len) == RX_FRAME) {
-                rxWaFrames++;
-                dispatchRx(p, len);
-            }
+            if (rxKind(p, len) == RX_FRAME) rxWaFrames++;
+            dispatchRx(p, len);                 // TXS/TXFREE/events live on this ring too (Linux mt7925_queue_rx_skb)
             rxRelease(rxWa);
         }
     }
