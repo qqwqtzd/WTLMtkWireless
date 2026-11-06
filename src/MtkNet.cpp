@@ -297,10 +297,19 @@ void MtkWlan::addbaDecline(const uint8_t *f, uint32_t flen) {
     addbaDeclined++;
 }
 
-// PKT_TYPE_TXS (mt7925_queue_rx_skb, mt7925_mac_add_txs_skb): records of 8 dwords from dword 2.
-// TXS0 rate (mode 9:6, nss 13:10, mcs 5:0), BW 31:29, ACK errors 18:16; TXS1 power 7:0; TXS2 WCID 27:16;
-// TXS5 (format 0) tx count 29:25
+// PKT_TYPE_TXS (mt7925_queue_rx_skb / mt7925_rx_check): the offset and stride depend on
+// which ring the packet came from - queue_rx_skb uses 8 dwords from dword 2, rx_check
+// uses 12 dwords from dword 4. Dump the first few raw packets so the real layout can
+// be verified on this hardware before trusting either parse.
 void MtkWlan::txStatus(const uint8_t *p, uint32_t len) {
+    if (txsDumps < 2 && txsDumpTag) {
+        char key[24];
+        snprintf(key, sizeof(key), "MtkTxsDump%u", txsDumps++);
+        char hx[3 * 128 + 1];
+        uint32_t n = len < 128 ? len : 128, k = 0;
+        for (uint32_t i = 0; i < n; i++) k += snprintf(hx + k, sizeof(hx) - k, "%02x", p[i]);
+        setProperty(key, hx);
+    }
     for (uint32_t o = 8; o + 32 <= len; o += 32) {
         uint32_t w[8];
         for (int i = 0; i < 8; i++) w[i] = le32(p + o + 4 * i);
