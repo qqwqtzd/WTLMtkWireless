@@ -439,7 +439,7 @@ private:
 
     // W8 HT/VHT: the AP's capabilities from its beacon, and what the association settled on
     bool htOn = true;                          // MtkHt in Info.plist
-    uint8_t maxBw = 2;                         // MtkMaxBw: 0 = 20, 1 = 40, 2 = 80 MHz
+    uint8_t maxBw = 3;                         // MtkMaxBw: 0 = 20, 1 = 40, 2 = 80, 3 = 160 MHz
     bool apHt = false, apVht = false, htActive = false, vhtActive = false;
     bool apHe = false, heActive = false;       // 802.11ax: AP advertises HE / the association is HE
     uint16_t apHtCap = 0;

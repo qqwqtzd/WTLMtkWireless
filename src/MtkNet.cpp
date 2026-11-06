@@ -934,16 +934,17 @@ static const uint16_t kHe80[12] = { 430, 860, 1290, 1720, 2290, 2870, 3440, 3870
 static const uint16_t kCck[4] = { 10, 20, 55, 110 };
 static const uint16_t kOfdm[8] = { 480, 240, 120, 60, 540, 360, 180, 90 };
 
+static const uint16_t kRate160[10] = { 586, 1170, 1755, 2340, 3510, 4680, 5265, 5850, 7020, 7800 };
 static uint32_t phyKbps(uint8_t mcs, uint8_t nss, uint8_t bw, bool sgi) {
     if (mcs > 9) mcs = 9;
-    uint32_t r = (bw == 2 ? kRate80 : bw == 1 ? kRate40 : kRate20)[mcs] * 100u * (nss ? nss : 1);
+    uint32_t r = (bw == 3 ? kRate160 : bw == 2 ? kRate80 : bw == 1 ? kRate40 : kRate20)[mcs] * 100u * (nss ? nss : 1);
     return sgi ? r * 10 / 9 : r;
 }
 
 static uint32_t heKbps(uint8_t mcs, uint8_t nss, uint8_t bw) {
     if (mcs > 11) mcs = 11;
     uint32_t r = kHe80[mcs] * 100u * (nss ? nss : 1);
-    return bw == 2 ? r : bw == 1 ? r / 2 : r / 4;
+    return bw == 3 ? r * 2 : bw == 2 ? r : bw == 1 ? r / 2 : r / 4;
 }
 
 // Rate of the last TX status (TXS0 rate: mode 9:6, nss 13:10, index 5:0; BW 31:29), else the negotiated maximum

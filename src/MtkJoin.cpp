@@ -133,9 +133,16 @@ void MtkWlan::parseAp() {
         chBw = 1;
         chCenter = (apHtOp & 3) == 1 ? tgtCh + 2 : tgtCh - 2;
     }
-    if (apVht && vhtWidth >= 1 && tgtCh > 14) {         // 80 MHz (160 is used as 80)
+    if (apVht && vhtWidth >= 1 && tgtCh > 14) {         // 80+ MHz (VHT Operation width): 80 or 160
         chBw = 2;
         chCenter = tgtCh >= 149 ? 155 : (uint8_t)(36 + ((tgtCh - 36) / 16) * 16 + 6);
+        // 160 MHz: VHT Operation width 3, or an HE AP advertising the 160/80+80 capability
+        if ((vhtWidth >= 3 || (apHe && (apHePhy[0] & 0x08))) && (apVhtCap & (1u << 14))) {
+            chBw = 3;
+            if (tgtCh >= 149) chCenter = 155;                       // 149..177
+            else if (tgtCh >= 100) chCenter = 106;                  // 100..128
+            else chCenter = 42;                                     // 36..64
+        }
     }
     if (chBw > maxBw) {
         chBw = maxBw;
@@ -189,7 +196,7 @@ int MtkWlan::bssInfo(bool enable) {
         he[6] = 4;                              // he_pe_duration
         he[7] = 0;                              // su_disable
         put16(he + 8, 0x000f);                  // our TX HE-MCS/NSS: BW80, 2 streams, MCS 0-11
-        put16(he + 10, 0xffff);                 // BW160 not supported
+        put16(he + 10, (chBw == 3 && maxBw >= 3) ? 0x000f : 0xffff);   // BW160: supported only when negotiating 160
         put16(he + 12, 0xffff);                 // BW80+80 not supported
     }
     if (enable) {
@@ -460,16 +467,17 @@ uint8_t *MtkWlan::assocIes(uint8_t *p, bool ht) {
     p += 26;
     if (apVht) {
         *p++ = 191; *p++ = 12;                  // VHT Capabilities
-        put32(p, 0x10 | 0x20 | 0x80 | 0x100 | (7u << 23));                // RXLDPC, SGI80, TX STBC, RX STBC 1, A-MPDU 1 MB
+        put32(p, 0x10 | 0x20 | 0x80 | 0x100 | (7u << 23) | ((maxBw >= 3) ? 0x4000 : 0));  // RXLDPC, SGI80, TX STBC, RX STBC 1, A-MPDU 1MB, 160MHz
         put16(p + 4, 0xfffa);                   // RX MCS 0-9, 2 streams
         put16(p + 6, 0);
         put16(p + 8, 0xfffa);                   // TX MCS 0-9, 2 streams
         put16(p + 10, 0);
         p += 12;
     }
-    if (apHe) {                                 // HE Capabilities (ext id 35), 2 streams, 80 MHz
+    if (apHe) {                                 // HE Capabilities (ext id 35), 2 streams, up to 160 MHz
         static const uint8_t heMac[6] = {0x01, 0x08, 0x00, 0x1a, 0x00, 0x00};
-        uint8_t hePhy[11] = {tgtCh > 14 ? (uint8_t)0x44 : (uint8_t)0x22,
+        bool bw160 = (maxBw >= 3) && (chBw == 3);
+        uint8_t hePhy[11] = {tgtCh > 14 ? (uint8_t)(bw160 ? 0x4c : 0x44) : (uint8_t)0x22,
                              0x70, 0xce, 0x12, 0x6d, 0xc0, 0x33, 0x06, 0x42, 0xbf, 0x00};
         *p++ = 255; uint8_t *hl = p++; *p++ = 35;
         memcpy(p, heMac, 6); p += 6;
@@ -620,10 +628,10 @@ void MtkWlan::joinService() {
             setNum("MtkW5AuthTx", authTx);
             setNum("MtkW5AssocTx", assocTx);
             {
-                static const char *bwName[3] = {"20", "40", "80"};
+                static const char *bwName[4] = {"20", "40", "80", "160"};
                 char mode[64];
                 snprintf(mode, sizeof(mode), "%s, %u MHz, %u stream%s", heActive ? "HE" : vhtActive ? "VHT" : htActive ? "HT" : "legacy 11a/g",
-                         htActive ? (chBw == 2 ? 80 : chBw == 1 ? 40 : 20) : 20, htActive ? apNss : 1, htActive && apNss > 1 ? "s" : "");
+                         htActive ? (chBw == 3 ? 160 : chBw == 2 ? 80 : chBw == 1 ? 40 : 20) : 20, htActive ? apNss : 1, htActive && apNss > 1 ? "s" : "");
                 setProperty("MtkW8Mode", mode);
                 char ap[96];
                 snprintf(ap, sizeof(ap), "ht %d cap %04x ampdu %02x mcs %02x%02x op %02x vht %d cap %08x rx %04x tx %04x bw %s ctr %u",

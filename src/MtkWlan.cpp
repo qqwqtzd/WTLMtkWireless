@@ -180,7 +180,7 @@ bool MtkWlan::start(IOService *provider) {
     OSBoolean *ht = OSDynamicCast(OSBoolean, getProperty("MtkHt"));
     if (ht) htOn = ht->isTrue();
     OSNumber *mbw = OSDynamicCast(OSNumber, getProperty("MtkMaxBw"));
-    if (mbw && mbw->unsigned32BitValue() <= 2) maxBw = (uint8_t)mbw->unsigned32BitValue();
+    if (mbw && mbw->unsigned32BitValue() <= 3) maxBw = (uint8_t)mbw->unsigned32BitValue();
     setProperty("MtkMilestone", "W1");
 
     setNum("MtkPciCommandBefore", pci->configRead16(kIOPCIConfigCommand), 16);

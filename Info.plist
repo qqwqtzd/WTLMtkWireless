@@ -48,7 +48,7 @@
 			<key>MtkHt</key>
 			<true/>
 			<key>MtkMaxBw</key>
-			<integer>2</integer>
+			<integer>3</integer>
 			<key>MtkPower</key>
 			<true/>
 			<key>MtkRxBa</key>
