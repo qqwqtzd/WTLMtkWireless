@@ -56,15 +56,23 @@ void MtkWlan::baActionHeader(uint8_t *r, uint8_t action) {
 }
 
 // Block-ack action frame from the AP (f = 802.11 header, body at 24)
+namespace {
+// Clamp a BA window to a power of two at most maxWin (RX reorder indexes by seqno % size,
+// and the hardware wants a power of two). Also used by the host test.
+uint16_t clampBaWin(uint16_t win, uint16_t maxWin) {
+    if (!win || win > maxWin) win = maxWin;
+    while (win & (win - 1)) win &= (uint16_t)(win - 1);
+    return win;
+}
+} // namespace
+
 void MtkWlan::baAction(const uint8_t *f, uint32_t flen) {
     uint8_t action = f[25];
     if (action == 0 && flen >= 33) {                         // ADDBA request: the AP wants to aggregate to us
         uint8_t dialog = f[26];
         uint16_t param = le16(f + 27), timeout = le16(f + 29), ssn = le16(f + 31) >> 4;
         uint8_t tid = (param >> 2) & 0xf;
-        uint16_t win = param >> 6;
-        if (!win || win > MTK_BA_WIN) win = MTK_BA_WIN;
-        while (win & (win - 1)) win &= (uint16_t)(win - 1);   // power of two: seqno % size stays continuous at 4095 -> 0
+        uint16_t win = clampBaWin(param >> 6, MTK_BA_WIN);
         if (!rxBaOn || tid >= 8 || !(param & 0x2)) { addbaDecline(f, flen); return; }   // immediate policy only
         rxBaStart(tid, ssn, win);
         int rc = staBa(tid, ssn, win, false, true);
@@ -84,8 +92,7 @@ void MtkWlan::baAction(const uint8_t *f, uint32_t flen) {
         baTxStatus = status;
         if (txBaState != 1 || f[26] != txBaDialog) return;
         if (status) { txBaState = 3; return; }               // refused: do not ask again
-        uint16_t win = param >> 6;
-        if (!win || win > MTK_BA_WIN) win = MTK_BA_WIN;
+        uint16_t win = clampBaWin(param >> 6, MTK_BA_WIN);
         int rc = staBa(0, txBaSsn, win, true, true);
         baLastRc = (uint32_t)rc;
         txBaState = rc ? 3 : 2;
@@ -113,7 +120,8 @@ void MtkWlan::txBaRequest() {
     txBaDialog = (uint8_t)(txBaDialog + 1);
     if (!txBaDialog) txBaDialog = 1;
     r[26] = txBaDialog;
-    put16(r + 27, (uint16_t)(0x2 | (0 << 2) | (MTK_BA_WIN << 6)));     // immediate policy, TID 0, no A-MSDU
+    // Ask for the configured window (MtkTxBaWin, 64 by default); the AP picks what it supports.
+    put16(r + 27, (uint16_t)(0x2 | (0 << 2) | (txBaWinDesired << 6)));   // immediate policy, TID 0, no A-MSDU
     put16(r + 29, 0);                                                  // no timeout
     // the hardware numbers our frames; start the window at the last sequence number a TX status reported
     txBaSsn = txsLast[1] ? (uint16_t)(((txsLast[1] >> 20) + 1) & SN_MASK) : 0;

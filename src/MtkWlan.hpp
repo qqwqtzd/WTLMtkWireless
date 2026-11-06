@@ -456,6 +456,7 @@ private:
     uint8_t txBaState = 0;                     // 0 none, 1 requested, 2 operational, 3 refused
     uint8_t txBaDialog = 0;
     uint16_t txBaSsn = 0, txBaWin = 0;
+    uint16_t txBaWinDesired = 64;              // MtkTxBaWin: TX ADDBA window we ask for (power of two, <= 256)
     uint32_t txBaNextTick = 0, txBaRequests = 0, baTxStatus = 0xffff, baLastRc = 0;
     uint32_t baRxSessions = 0, baTxSessions = 0, baDup = 0, baBuffered = 0, baTimeoutRelease = 0;
     uint32_t barRx = 0, delbaRx = 0;

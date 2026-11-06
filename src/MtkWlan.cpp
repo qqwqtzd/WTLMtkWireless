@@ -156,6 +156,17 @@ bool MtkWlan::start(IOService *provider) {
     if (rxba) rxBaOn = rxba->isTrue();
     OSBoolean *txba = OSDynamicCast(OSBoolean, getProperty("MtkTxBa"));
     if (txba) txBaOn = txba->isTrue();
+    // TX ADDBA window: 16..256, rounded to a power of two (the AP may grant less)
+    if (OSNumber *bw = OSDynamicCast(OSNumber, getProperty("MtkTxBaWin"))) {
+        uint32_t v = bw->unsigned32BitValue();
+        if (v >= 4 && v <= 256) {
+            uint16_t w = (uint16_t)v;
+            while (w & (w - 1)) w &= (uint16_t)(w - 1);
+            if (w < 16) w = 16;
+            txBaWinDesired = w;
+        }
+    }
+    setNum("MtkTxBaWin", txBaWinDesired);
     OSBoolean *ht = OSDynamicCast(OSBoolean, getProperty("MtkHt"));
     if (ht) htOn = ht->isTrue();
     OSNumber *mbw = OSDynamicCast(OSNumber, getProperty("MtkMaxBw"));
