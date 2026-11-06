@@ -443,7 +443,6 @@ private:
     // 0.6.1 TX diagnostics: sampled TX status (rate, power, tries) and TX-free attempt counts
     uint32_t txsRecords = 0, txsAckErr = 0, txsCountSum = 0, txsSampleSeq = 0;
     uint32_t txsDumps = 0;                     // raw TXS packets dumped for layout verification
-    const char *txsDumpTag = "w11-txs";        // non-null enables exactly two dumps per boot
     uint32_t txsMode[16] = {}, txsMcs[16] = {}, txsNss[4] = {}, txsBw[4] = {};
     int32_t txsPwrSum = 0;
     uint32_t txsLast[8] = {};

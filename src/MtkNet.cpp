@@ -302,7 +302,7 @@ void MtkWlan::addbaDecline(const uint8_t *f, uint32_t flen) {
 // uses 12 dwords from dword 4. Dump the first few raw packets so the real layout can
 // be verified on this hardware before trusting either parse.
 void MtkWlan::txStatus(const uint8_t *p, uint32_t len) {
-    if (txsDumps < 2 && txsDumpTag) {
+    if (txsDumps < 2) {
         char key[24];
         snprintf(key, sizeof(key), "MtkTxsDump%u", txsDumps++);
         char hx[3 * 128 + 1];
@@ -310,23 +310,27 @@ void MtkWlan::txStatus(const uint8_t *p, uint32_t len) {
         for (uint32_t i = 0; i < n; i++) k += snprintf(hx + k, sizeof(hx) - k, "%02x", p[i]);
         setProperty(key, hx);
     }
+    // Layout observed on this card (ring 7), 8 dwords per record from dword 2:
+    //   w[0..1] RXD header (skipped), w[2]=TXS0, w[3]=TXS1, w[4]=TXS2, w[5]=TXS3.
+    // TXS0: TXS_FORMAT 24:23, rate 13:0; TXS2: WCID 27:16; TXS3: PID 31:24, STBC 7.
     for (uint32_t o = 8; o + 32 <= len; o += 32) {
         uint32_t w[8];
         for (int i = 0; i < 8; i++) w[i] = le32(p + o + 4 * i);
-        if (((w[0] >> 23) & 3) > 1) continue;                     // TXS_FORMAT
-        if (((w[2] >> 16) & 0xfff) != AP_WCID) continue;
+        uint32_t txs0 = w[2], txs1 = w[3], txs2 = w[4], txs3 = w[5];
+        if (((txs0 >> 23) & 3) > 1) continue;            // TXS0 TXS_FORMAT must be 0 or 1
+        if (((txs2 >> 16) & 0xfff) != AP_WCID) continue; // TXS2 WCID
         txsRecords++;
         memcpy(txsLast, w, sizeof(txsLast));
-        uint32_t rate = w[0] & 0x3fff;
+        uint32_t rate = txs0 & 0x3fff;
         txsMode[(rate >> 6) & 0xf]++;
         txsMcs[rate & 0xf]++;
         txsNss[((rate >> 10) & 0xf) & 3]++;
-        txsBw[((w[0] >> 29) & 7) & 3]++;
-        if (w[0] & (7u << 16)) txsAckErr++;
-        txsPwrSum += (int8_t)(w[1] & 0xff);
-        txsCountSum += (w[5] >> 25) & 0x1f;
-        txsDelaySum += w[2] & 0xffff;                              // TXS2 TX_DELAY
-        uint32_t seq = w[1] >> 20;                                 // TXS1 SEQNO: does the hardware number frames?
+        txsBw[((txs0 >> 29) & 7) & 3]++;
+        if (txs0 & (7u << 16)) txsAckErr++;
+        txsPwrSum += (int8_t)(txs1 & 0xff);
+        txsCountSum += (txs3 >> 25) & 0x1f;
+        txsDelaySum += txs2 & 0xffff;
+        uint32_t seq = txs1 >> 20;                       // TXS1 SEQNO
         if (txsRecords > 1) txsSeqSpan = (seq - txsLastSeq) & 0xfff;
         txsLastSeq = seq;
     }
