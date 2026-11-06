@@ -418,9 +418,10 @@ private:
     uint32_t txPackets = 0, txStall = 0, txDrop = 0, txRingFull = 0, txFreeEvents = 0, txFreed = 0,
              txFreeBadVer = 0, txLostFree = 0, txFailed = 0;
     uint32_t rxPackets = 0, rxBad = 0, rxPartial = 0, rxTrans = 0, rxNonSnap = 0, rxProtected = 0,
-             rxOwn = 0, rxDropped = 0, rxMcast = 0, rxRa = 0;
+             rxOwn = 0, rxDropped = 0, rxMcast = 0, rxRa = 0, rxTransDec = 0;
     uint32_t deauths = 0, lastDeauth = 0, rejoins = 0, keepalives = 0;
     uint32_t rxTypes[32] = {};
+    uint32_t rxWaPackets = 0, rxWaFrames = 0;
     uint32_t txInFlight = 0, txInFlightPeak = 0, txCapped = 0, txQueued = 0;
     uint32_t lastTxd1 = 0;                     // TXD1 of the most recent frame (TGID/HDR_FORMAT diagnostics)
     bool w6Pass = false;

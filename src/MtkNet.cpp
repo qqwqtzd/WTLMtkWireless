@@ -193,10 +193,12 @@ void MtkWlan::rxFrame(const uint8_t *p, uint32_t len) {
     const uint8_t *f = p + off;
     uint32_t flen = len - off;
 
-    if (rxd2 & (1u << 7)) {                                           // HDR_TRANS: already 802.3 (translation is off)
+    if (rxd2 & (1u << 7)) {                                           // HDR_TRANS: already 802.3
         if (rxd2 & (1u << 25)) { rxBad++; return; }
         rxTrans++;
-        if (tgtRsn || !portOpen) { rxTransDrop++; return; }
+        if (!portOpen) { rxTransDrop++; return; }
+        if (tgtRsn && !decrypted) { rxTransDrop++; return; }           // protected link: only hardware-decrypted frames
+        if (decrypted) rxTransDec++;
         if (!memcmp(f + 6, mac, 6)) return;
         deliver(f, f + 6, f + 12, flen - 12);
         return;
@@ -577,6 +579,9 @@ void MtkWlan::publishW6() {
     setNum("MtkW9TxCh", tgtCh);
     setNum("MtkW9RxMcast", rxMcast);
     setNum("MtkW9RxRa", rxRa);
+    setNum("MtkW9RxTransDec", rxTransDec);
+    setNum("MtkW9RxWa", rxWaPackets);
+    setNum("MtkW9RxWaFrames", rxWaFrames);
     char b[200];
     snprintf(b, sizeof(b), "rx sessions %u buffered %u dup %u timeout %u bar %u delba %u | tx state %u req %u status %u win %u ssn %u | rc %d",
              baRxSessions, baBuffered, baDup, baTimeoutRelease, barRx, delbaRx, txBaState, txBaRequests, baTxStatus, txBaWin,

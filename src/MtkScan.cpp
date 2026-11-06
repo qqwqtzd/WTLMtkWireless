@@ -217,12 +217,19 @@ void MtkWlan::pollRx() {
         dispatchRx(p, len);
         rxRelease(rxData);
     }
-    // MT7927 has a second MCU RX ring (RXQ_DATA2=7) for WA/tx-done events. This driver polls TX status and does
-    // not consume them, but the ring must be drained or the firmware stalls.
+    // MT7927 has a second MCU RX ring (RXQ_DATA2=7) for WA/tx-done events. Linux feeds this ring through
+    // mt7925_queue_rx_skb too; normal frames (notably broadcast/multicast, which the firmware can route to the
+    // WA ring) must be dispatched, not discarded. TXS/TXFREE/events stay unread here as before.
     if (isMt7927 && rxWa.desc.va) {
         for (int guard = 0; guard < 128; guard++) {
             uint32_t len = 0;
-            if (!rxPoll(rxWa, &len)) break;
+            const uint8_t *p = rxPoll(rxWa, &len);
+            if (!p) break;
+            rxWaPackets++;
+            if (rxKind(p, len) == RX_FRAME) {
+                rxWaFrames++;
+                dispatchRx(p, len);
+            }
             rxRelease(rxWa);
         }
     }
