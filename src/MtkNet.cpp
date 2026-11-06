@@ -626,9 +626,9 @@ void MtkWlan::publishW6() {
         setProperty("MtkW9Wmm", t);
     }
     char b[200];
-    snprintf(b, sizeof(b), "rx sessions %u buffered %u dup %u timeout %u bar %u delba %u | tx state %u req %u status %u win %u ssn %u | rc %d",
-             baRxSessions, baBuffered, baDup, baTimeoutRelease, barRx, delbaRx, txBaState, txBaRequests, baTxStatus, txBaWin,
-             txBaSsn, (int)baLastRc);
+    snprintf(b, sizeof(b), "rx sessions %u buffered %u dup %u timeout %u bar %u delba %u slides %u hwm %u | tx state %u req %u status %u win %u ssn %u | rc %d",
+             baRxSessions, baBuffered, baDup, baTimeoutRelease, barRx, delbaRx, baWinSlides, baHighWater, txBaState, txBaRequests,
+             baTxStatus, txBaWin, txBaSsn, (int)baLastRc);
     setProperty("MtkW9Ba", b);
     setNum("MtkW6TxInFlightPeak", txInFlightPeak);
     setNum("MtkW6RxPackets", rxPackets);

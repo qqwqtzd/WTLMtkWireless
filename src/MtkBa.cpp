@@ -192,7 +192,12 @@ void MtkWlan::rxBaReorder(uint8_t tid, uint16_t seqno, mbuf_t m, int pnSlot, uin
     if (!snLess(seqno, (uint16_t)((head + size) & SN_MASK))) {        // beyond the window: slide it
         head = snInc(snSub(seqno, size));
         rxBaReleaseFrames(t, head);
+        baWinSlides++;
     }
+    uint32_t depth = t.nframes;
+    baDeep += depth;
+    if (depth > baDeepMax) baDeepMax = depth;
+    if (depth > baHighWater) baHighWater = depth;
     int idx = seqno % size;
     if (t.buf[idx]) { mbuf_freem(m); baDup++; return; }
     t.buf[idx] = m;

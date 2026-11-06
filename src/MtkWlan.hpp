@@ -472,6 +472,8 @@ private:
     uint16_t txBaWinDesired = 64;              // MtkTxBaWin: TX ADDBA window we ask for (power of two, <= 256)
     uint32_t txBaNextTick = 0, txBaRequests = 0, baTxStatus = 0xffff, baLastRc = 0;
     uint32_t baRxSessions = 0, baTxSessions = 0, baDup = 0, baBuffered = 0, baTimeoutRelease = 0;
+    uint32_t baWinSlides = 0, baDeep = 0, baDeepMax = 0;   // S-4: window slides, buffered-depth samples/max
+    uint32_t baHighWater = 0;                              // S-4: how many slots were occupied at the busiest moment
     uint32_t barRx = 0, delbaRx = 0;
     // block-ack action frames wait here for tick(): firmware commands never run inside the RX path
     struct BaEvt { uint8_t f[40]; uint32_t len; };
