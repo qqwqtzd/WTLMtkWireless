@@ -310,15 +310,17 @@ void MtkWlan::txStatus(const uint8_t *p, uint32_t len) {
         for (uint32_t i = 0; i < n; i++) k += snprintf(hx + k, sizeof(hx) - k, "%02x", p[i]);
         setProperty(key, hx);
     }
-    // Layout observed on this card (ring 7), 8 dwords per record from dword 2:
-    //   w[0..1] RXD header (skipped), w[2]=TXS0, w[3]=TXS1, w[4]=TXS2, w[5]=TXS3.
-    // TXS0: TXS_FORMAT 24:23, rate 13:0; TXS2: WCID 27:16; TXS3: PID 31:24, STBC 7.
-    for (uint32_t o = 8; o + 32 <= len; o += 32) {
-        uint32_t w[8];
-        for (int i = 0; i < 8; i++) w[i] = le32(p + o + 4 * i);
-        uint32_t txs0 = w[2], txs1 = w[3], txs2 = w[4], txs3 = w[5];
-        if (((txs0 >> 23) & 3) > 1) continue;            // TXS0 TXS_FORMAT must be 0 or 1
-        if (((txs2 >> 16) & 0xfff) != AP_WCID) continue; // TXS2 WCID
+    // Layout verified against the on-card bytes (tests/mtk_txs_test.c): RXD header
+    // 16 bytes, then 48-byte (12 dword) records from offset 16 - matches
+    // mt7925_rx_check (rxd += 4; rxd += 12), not queue_rx_skb's 8-dword stride.
+    // TXS0 at record+0: TXS_FORMAT 24:23, rate 13:0; TXS2: WCID 27:16, TX_DELAY 15:0;
+    // TXS3: PID 31:24, tx count 29:25.
+    for (uint32_t o = 16; o + 48 <= len; o += 48) {
+        uint32_t w[12];
+        for (int i = 0; i < 12; i++) w[i] = le32(p + o + 4 * i);
+        uint32_t txs0 = w[0], txs1 = w[1], txs2 = w[2], txs3 = w[3];
+        if (((txs0 >> 23) & 3) > 1) continue;            // TXS_FORMAT must be 0 or 1
+        if (((txs2 >> 16) & 0xfff) != AP_WCID) continue; // WCID
         txsRecords++;
         memcpy(txsLast, w, sizeof(txsLast));
         uint32_t rate = txs0 & 0x3fff;
@@ -940,9 +942,9 @@ void MtkWlan::rateInfo(mtk_rate_info *out) const {
     out->ap_short_gi = heGi ? 0 : sgi;
     out->max_mcs = maxMcs;
     out->max_kbps = heActive ? heKbps(maxMcs, nss, bw) : htActive ? phyKbps(maxMcs, nss, bw, sgi) : 54000;
-    // TXS lays out as RXD header (w[0..1]) then TXS0 at w[2] on MT7927's ring 7
-    // (mt76_connac3_mac.h); the sample records keep that shape in txsLast[].
-    uint32_t t = txsLast[2], r = t & 0x3fff, mode = (r >> 6) & 0xf, idx = r & 0x3f;
+    // TXS stores the record from RXD header + 0x10: txsLast[0] is TXS0
+    // (mt7925_rx_check layout, verified in tests/mtk_txs_test.c).
+    uint32_t t = txsLast[0], r = t & 0x3fff, mode = (r >> 6) & 0xf, idx = r & 0x3f;
     // Data frames on this card report rate modes up to 8 (HE/EHT) and the sampled
     // management frames report 0/1 (legacy), which would drag the UI rate down:
     // only decode the non-legacy modes, otherwise report the negotiated maximum.
