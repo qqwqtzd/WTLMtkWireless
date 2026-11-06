@@ -60,7 +60,7 @@
 			<key>MtkTxBaWin</key>
 			<integer>64</integer>
 			<key>MtkWmm</key>
-			<false/>
+			<true/>
 		</dict>
 	</dict>
 	<key>OSBundleCompatibleVersion</key>

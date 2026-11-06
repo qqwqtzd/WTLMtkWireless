@@ -423,6 +423,8 @@ private:
     uint32_t rxTypes[32] = {};
     uint32_t rxWaPackets = 0, rxWaFrames = 0;
     uint32_t txInFlight = 0, txInFlightPeak = 0, txCapped = 0, txQueued = 0;
+    uint32_t txTidCount[8] = {};                 // W-10: TX frames per QoS TID (0..7)
+    uint32_t wmmClassCount[4] = {};              // W-10: TX frames per AC (VO/VI/BE/BK)
     uint32_t lastTxd1 = 0;                     // TXD1 of the most recent frame (TGID/HDR_FORMAT diagnostics)
     bool w6Pass = false;
 

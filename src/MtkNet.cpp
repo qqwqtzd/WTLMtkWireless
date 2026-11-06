@@ -597,6 +597,14 @@ void MtkWlan::publishW6() {
     setNum("MtkW9RxTransDec", rxTransDec);
     setNum("MtkW9RxWa", rxWaPackets);
     setNum("MtkW9RxWaFrames", rxWaFrames);
+    {
+        char t[96];
+        snprintf(t, sizeof(t), "tids %u/%u/%u/%u/%u/%u/%u/%u acs VO %u VI %u BE %u BK %u wmm %d apwmm %d",
+                 txTidCount[0], txTidCount[1], txTidCount[2], txTidCount[3], txTidCount[4], txTidCount[5],
+                 txTidCount[6], txTidCount[7], wmmClassCount[0], wmmClassCount[1], wmmClassCount[2], wmmClassCount[3],
+                 wmmOn, apWmm);
+        setProperty("MtkW9Wmm", t);
+    }
     char b[200];
     snprintf(b, sizeof(b), "rx sessions %u buffered %u dup %u timeout %u bar %u delba %u | tx state %u req %u status %u win %u ssn %u | rc %d",
              baRxSessions, baBuffered, baDup, baTimeoutRelease, barRx, delbaRx, txBaState, txBaRequests, baTxStatus, txBaWin,
@@ -1117,5 +1125,7 @@ int MtkWlan::txFrame(const uint8_t *eh, uint32_t len, mbuf_t m, const uint8_t *b
     // TXD3 BCM stays clear: addr1 is the AP (mt7925_mac_write_txwi derives it from addr1), only the rate follows the DA
     txQueue(h + 8 + len - 14, qIdx, 2, qos ? 8 : 0, rate, false, sample, h, tid, protect);
     txPackets++;
+    if (qos && tid < 8) txTidCount[tid]++;
+    if (wmmOn && qos && !mc) wmmClassCount[(uint8_t)mtk_tid_to_ac(tid)]++;
     return MTK_TX_OK;
 }
