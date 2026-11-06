@@ -408,6 +408,8 @@ private:
     uint32_t attachRecover = 0, attachFlr = 0, flrUnsupported = 0;
     mtk_super super = {};
     uint32_t stallReloadFails = 0, stallLastReloadMs = 0;
+    uint32_t reloadFails = 0, reloadRetryAt = 0; // S-2: failed firmware reloads and the next retry tick
+    bool fwDeadSticky = false;                   // S-2: give up only after repeated failures with backoff
     bool stallFreezeRx = false;                // debug (kMtkUcStallTest): ignore the Rx ring so the supervisor trips
     IOService *frontEnd = nullptr;             // MtkWlanEth child, created by startFrontEnd()
     mtk_fe_callbacks fe = {};                  // all null while no front end is registered

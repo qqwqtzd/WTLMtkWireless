@@ -399,7 +399,10 @@ void MtkWlan::keepalive(bool status) {
     keepalives++;
 }
 
-// Link supervisor (I-096), once a second: MtkSuper.c decides from the counters, this does what it says
+// Link supervisor (I-096), once a second: MtkSuper.c decides from the counters, this does what it does.
+// S-2: a failed firmware reload retries with backoff instead of staying dead. The supervisor caps its
+// reloads (3 per 10 min); once it has stopped, the S-2 branch below (a previous reload that failed)
+// keeps trying with a growing pause - the chip can come back after a stuck DMA drains.
 void MtkWlan::stallService() {
     if (!super.stall_ms || ticks % 1000) return;
     mtk_super_in in = {};
@@ -411,7 +414,19 @@ void MtkWlan::stallService() {
     in.tx_freed = txFreed;
     in.txs_records = txsRecords;
     in.txs_ack_err = txsAckErr;
-    switch (mtk_super_step(&super, &in)) {
+    int act = mtk_super_step(&super, &in);
+    if (act == MTK_SUPER_NONE && reloadFails && (int32_t)(ticks - reloadRetryAt) >= 0 && !fwDeadSticky) {
+        // supervisor quiet AND a reload previously failed: retry with backoff
+        uint32_t f = reloadFails;
+        reloadFails = 0;
+        reloadRetryAt = ticks + (f < 6 ? 600 : 3000);   // 6 s, then 30 s backoff
+        if (reload("firmware reload retry") != 0) {
+            reloadFails = f + 1;
+            reloadRetryAt = ticks + (f < 6 ? 600 : 3000);
+        }
+        return;
+    }
+    switch (act) {
     case MTK_SUPER_PROBE:
         keepalive(true);
         break;
@@ -427,10 +442,10 @@ void MtkWlan::stallService() {
     default:
         break;
     }
-    if (super.probes || super.reloads || super.capped) {
+    if (super.probes || super.reloads || super.capped || reloadFails || stallReloadFails) {
         char s[160];
-        snprintf(s, sizeof(s), "probes %u idle-ok %u rejoins %u reloads %u failed %u capped %u last-reload-ms %u", super.probes,
-                 super.idle_ok, super.rejoins, super.reloads, stallReloadFails, super.capped, stallLastReloadMs);
+        snprintf(s, sizeof(s), "probes %u idle-ok %u rejoins %u reloads %u failed %u capped %u retry-pending %u last-reload-ms %u", super.probes,
+                 super.idle_ok, super.rejoins, super.reloads, stallReloadFails, super.capped, reloadFails, stallLastReloadMs);
         setProperty("MtkStall", s);
     }
 }
@@ -464,6 +479,8 @@ int MtkWlan::reload(const char *why) {
     }
     if (rc) {
         stallReloadFails++;
+        reloadFails++;                           // S-2: schedule a retry in stallService
+        reloadRetryAt = ticks;
         step("stall: reload failed, the firmware stays stopped");
         return rc;
     }
@@ -471,8 +488,11 @@ int MtkWlan::reload(const char *why) {
     uniCmdTimeouts = 0;
     if (hwInit(true)) {
         stallReloadFails++;
+        reloadFails++;
+        reloadRetryAt = ticks;
         return -8;
     }
+    reloadFails = 0;                             // a clean reload clears the retry state
     scanWanted = true;
     cmKick = true;
     rejoinPending = true;

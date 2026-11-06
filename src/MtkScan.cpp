@@ -128,6 +128,8 @@ int MtkWlan::uniCmd(uint8_t cid, const void *payload, uint32_t plen, bool query,
     uniCmdFails++;
     if (++uniCmdTimeouts >= UNICMD_DEAD_AFTER && !fwDead) {
         fwDead = true;
+        reloadFails = 0;                         // S-2: anything later observes fwDead and retries
+        reloadRetryAt = ticks;
         step("fail: firmware unresponsive (3 command timeouts), machines stopped");
     }
     return -12;
