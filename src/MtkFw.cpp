@@ -202,23 +202,6 @@ void MtkWlan::interruptHandler(OSObject *owner, void *, IOService *, int) {
     self->irqLastStatus = sta;
     self->irqStatusOr |= sta;
     self->rawWrite(WFDMA0_HOST_INT_STA, sta);
-    // W-07: kick the RX path from the interrupt instead of waiting for the next
-    // 1 ms tick. The workloop gate serialises this against the tick and the
-    // firmware-command polling; runAction is safe off the gate (interrupt ctx).
-    if (sta && !self->irqRxPending) {
-        self->irqRxPending = true;
-        if (self->workLoop)
-            self->workLoop->runAction(&MtkWlan::gatedIrqRx, self, nullptr, nullptr, nullptr, nullptr);
-    }
-}
-
-IOReturn MtkWlan::gatedIrqRx(OSObject *owner, void *, void *, void *, void *) {
-    MtkWlan *self = OSDynamicCast(MtkWlan, owner);
-    if (self) {
-        self->pollRx();
-        self->irqRxPending = false;
-    }
-    return kIOReturnSuccess;
 }
 
 void MtkWlan::setupInterrupt() {
