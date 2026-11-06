@@ -939,32 +939,28 @@ void MtkWlan::rateInfo(mtk_rate_info *out) const {
     // TXS lays out as RXD header (w[0..1]) then TXS0 at w[2] on MT7927's ring 7
     // (mt76_connac3_mac.h); the sample records keep that shape in txsLast[].
     uint32_t t = txsLast[2], r = t & 0x3fff, mode = (r >> 6) & 0xf, idx = r & 0x3f;
-    if (txsRecords && mode <= 4) {
+    // Data frames on this card report rate modes up to 8 (HE/EHT) and the sampled
+    // management frames report 0/1 (legacy), which would drag the UI rate down:
+    // only decode the non-legacy modes, otherwise report the negotiated maximum.
+    if (txsRecords && mode >= 2 && mode <= 8) {
         uint8_t txBw = (uint8_t)((t >> 29) & 7);
         if (txBw > 2) txBw = 2;
         out->from_txs = 1;
         out->bw_mhz = (uint16_t)(20u << txBw);
         out->short_gi = mode >= 2 && sgi;         // TXS carries no GI; the firmware uses short GI when both allow it
-        if (mode <= 1) {
-            out->phy = MTK_PHY_LEGACY;
-            out->nss = 1;
-            out->mcs = 0;
-            out->tx_kbps = (mode == 0 ? kCck[idx & 3] : kOfdm[idx & 7]) * 100u;
-            out->short_gi = 0;
-            return;
-        }
-        if (mode == 4) {
-            out->phy = MTK_PHY_HE;                 // HE SU / ext SU / TB / MU all carry MCS 0-11
-            out->mcs = (uint8_t)(idx & 0xf);
-            out->nss = (uint8_t)(((r >> 10) & 0xf) + 1);
+        if (mode == 2) {                          // HT / HT greenfield: the index carries the stream count
+            out->phy = MTK_PHY_HT;
+            out->mcs = (uint8_t)(idx & 7);
+            out->nss = (uint8_t)(idx / 8 + 1);
         } else if (mode == 3) {
             out->phy = MTK_PHY_VHT;
             out->mcs = (uint8_t)(idx & 0xf);
             out->nss = (uint8_t)(((r >> 10) & 0xf) + 1);
-        } else {                                  // HT / HT greenfield: the index carries the stream count
-            out->phy = MTK_PHY_HT;
-            out->mcs = (uint8_t)(idx & 7);
-            out->nss = (uint8_t)(idx / 8 + 1);
+        } else {                                  // 4 HE_SU .. 8 EHT_SU: HE MCS 0-11 (clamped), as the firmware reports
+            out->phy = heActive ? MTK_PHY_HE : MTK_PHY_VHT;
+            out->mcs = (uint8_t)(idx & 0xf);
+            if (out->mcs > 11) out->mcs = 11;
+            out->nss = (uint8_t)(((r >> 10) & 0xf) + 1);
         }
         if (out->nss > 2) out->nss = 2;
         out->tx_kbps = (out->phy == MTK_PHY_HE) ? heKbps(out->mcs, out->nss, txBw)
