@@ -1104,8 +1104,18 @@ int MtkWlan::txFrame(const uint8_t *eh, uint32_t len, mbuf_t m, const uint8_t *b
     bool mc = eh[0] & 1;
     uint8_t rate = mc ? RATE_IDX_OFDM12 : (dataRate ? dataRate : htActive ? 0 : RATE_IDX_OFDM24);
     bool sample = !mc && (++txsSampleSeq & 63) == 0;
+    // W-10: WMM. Data frames keep TID 0 / AC_BE today (TX block ack is built on TID 0);
+    // with MtkWmm + an AP that advertises WMM, QoS frames get a TID from the VLAN
+    // PCP / IP DSCP classifier (mtk_eth_tid) and go out on the matching LMAC queue.
+    uint8_t tid = 0;
+    uint8_t qIdx = LMAC_AC_BE;
+    if (wmmOn && apWmm && qos && !mc) {
+        tid = mtk_eth_tid(eh, len);
+        qIdx = (uint8_t)mtk_tid_to_lmac(tid);
+        f[24] = (uint8_t)(tid & 0x0f);
+    }
     // TXD3 BCM stays clear: addr1 is the AP (mt7925_mac_write_txwi derives it from addr1), only the rate follows the DA
-    txQueue(h + 8 + len - 14, LMAC_AC_BE, 2, qos ? 8 : 0, rate, false, sample, h, 0, protect);
+    txQueue(h + 8 + len - 14, qIdx, 2, qos ? 8 : 0, rate, false, sample, h, tid, protect);
     txPackets++;
     return MTK_TX_OK;
 }

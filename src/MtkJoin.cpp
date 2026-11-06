@@ -213,8 +213,10 @@ int MtkWlan::edca() {
     uint8_t aifs[4] = {2, 2, 3, 7}, ecwMin[4] = {2, 3, 4, 4}, ecwMax[4] = {3, 4, 10, 10};
     uint16_t txop[4] = {47, 94, 0, 0};
     static const uint8_t aciToAc[4] = {2, 3, 1, 0};
+    apWmm = false;
     for (const uint8_t *e = tgtIe, *end = tgtIe + tgtIeLen; e + 2 <= end && e + 2 + e[1] <= end; e += 2 + e[1]) {
         if (e[0] != 0xdd || e[1] < 24 || e[2] != 0x00 || e[3] != 0x50 || e[4] != 0xf2 || e[5] != 2 || e[6] != 1) continue;
+        apWmm = true;
         const uint8_t *r = e + 10;
         for (int i = 0; i < 4; i++, r += 4) {
             uint8_t ac = aciToAc[(r[0] >> 5) & 3];

@@ -441,6 +441,8 @@ private:
     uint32_t addbaDeclined = 0, rxAmsdu = 0;
 
     // 0.6.1 TX diagnostics: sampled TX status (rate, power, tries) and TX-free attempt counts
+    bool wmmOn = false;                          // MtkWmm: WMM TID->AC TX queueing (default off)
+    bool apWmm = false;                          // the AP advertised a WMM element (from edca())
     uint32_t txsRecords = 0, txsAckErr = 0, txsCountSum = 0, txsSampleSeq = 0;
     uint32_t txsDumps = 0;                     // raw TXS packets dumped for layout verification
     uint32_t txsMode[16] = {}, txsMcs[16] = {}, txsNss[4] = {}, txsBw[4] = {};

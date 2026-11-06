@@ -156,6 +156,8 @@ bool MtkWlan::start(IOService *provider) {
     if (rxba) rxBaOn = rxba->isTrue();
     OSBoolean *txba = OSDynamicCast(OSBoolean, getProperty("MtkTxBa"));
     if (txba) txBaOn = txba->isTrue();
+    // W-10: WMM TID->AC queueing; off until a per-flow classifier is wired up
+    if (OSBoolean *wm = OSDynamicCast(OSBoolean, getProperty("MtkWmm"))) wmmOn = wm->isTrue();
     // TX ADDBA window: 16..256, rounded to a power of two (the AP may grant less)
     if (OSNumber *bw = OSDynamicCast(OSNumber, getProperty("MtkTxBaWin"))) {
         uint32_t v = bw->unsigned32BitValue();

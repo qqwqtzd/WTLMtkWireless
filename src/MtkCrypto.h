@@ -78,6 +78,22 @@ void mtk_wpa_ptk(const uint8_t pmk[32], const uint8_t aa[6], const uint8_t spa[6
 // frame = the whole EAPOL packet (version byte first), mic_off = offset of the MIC field (81).
 void mtk_eapol_mic(const uint8_t kck[16], const uint8_t *frame, size_t len, size_t mic_off, uint8_t mic[16]);
 
+// WMM TID -> access category (IEEE 802.11-2020 10.2.3.2): 0-1 BE, 2-3 BK, 4-5 VI,
+// 6-7 VO, 8..15 mapped to VO(7)/BE(0) parity like mac80211's ieee80211_downgrade_queue.
+// Returns 0..3 (VO=0, VI=1, BE=2, BK=3 in the mac80211 order).
+int mtk_tid_to_ac(uint8_t tid);
+// AC (0..3, mac80211 order) -> MediaTek LMAC queue index: 3 - ac (mt76_connac_lmac_mapping).
+int mtk_ac_to_lmac(int ac);
+// Convenience: TID -> LMAC queue index (used by the QoS data path).
+int mtk_tid_to_lmac(uint8_t tid);
+// WMM frame classifier: map an Ethernet payload (14-byte header + payload) to a TID
+// using 802.1Q PCP if a VLAN tag is present, else the IP DSCP (RFC 8325 style for
+// Wi-Fi). Single-copy voice (EF/CS7), video (AF4x/CS5/VA), best effort, background.
+// Returns 0..7. Unknown / non-IP frames stay on 0 (BE).
+uint8_t mtk_eth_tid(const uint8_t *eh, uint32_t len);
+// IPv4/6 DSCP -> 802.11 TID (RFC 8325 reduced set; default 0)
+uint8_t mtk_dscp_tid(uint8_t dscp);
+
 #ifdef __cplusplus
 }
 #endif

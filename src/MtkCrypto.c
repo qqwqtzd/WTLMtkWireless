@@ -357,3 +357,47 @@ void mtk_eapol_mic(const uint8_t kck[16], const uint8_t *frame, size_t len, size
     mtk_zero(h, sizeof(h));
     mtk_zero(inner, sizeof(inner));
 }
+
+int mtk_tid_to_ac(uint8_t tid) {
+    if (tid <= 1) return 2;     // BE
+    if (tid <= 3) return 3;     // BK
+    if (tid <= 5) return 1;     // VI
+    return 0;                   // VO (6,7 and 8..15 downgraded to VO/BE parity)
+}
+
+int mtk_ac_to_lmac(int ac) {
+    if (ac < 0 || ac > 3) ac = 2;
+    return 3 - ac;
+}
+
+int mtk_tid_to_lmac(uint8_t tid) {
+    return mtk_ac_to_lmac(mtk_tid_to_ac(tid));
+}
+
+uint8_t mtk_dscp_tid(uint8_t dscp) {
+    // RFC 8325 (Wi-Fi QoS): EF/CS7 -> VO(6/7), AF4x/CS5/VA -> VI(4/5),
+    // AF1x/CS1 -> BK(2/3), everything else BE(0/1).
+    if (dscp == 46 || dscp == 56) return 6;              // EF, CS7
+    if (dscp == 40 || dscp == 44 || dscp == 48 || (dscp >= 32 && dscp <= 39)) return 4;  // CS5, VA, AF4x, CS4
+    if ((dscp >= 24 && dscp <= 31)) return 4;              // AF3x, CS3
+    if ((dscp >= 18 && dscp <= 23) || dscp == 26) return 4; // AF2x trailers
+    if (dscp >= 10 && dscp <= 13) return 2;              // AF1x -> BK
+    if (dscp == 8) return 2;                              // CS1 -> BK
+    return 0;
+}
+
+uint8_t mtk_eth_tid(const uint8_t *eh, uint32_t len) {
+    if (!eh || len < 14) return 0;
+    uint16_t etype = (uint16_t)(eh[12] << 8 | eh[13]);
+    if (etype == 0x8100) {                                 // 802.1Q: PCP in the first 3 bits
+        if (len < 18) return 0;
+        return (uint8_t)(eh[14] >> 5) & 0x7;              // PCP 0..7 -> TID 0..7 (best effort-ish)
+    }
+    if (etype == 0x0800 || etype == 0x86dd) {             // IPv4 / IPv6
+        if (len < 17) return 0;
+        uint8_t tos = eh[14];
+        if (etype == 0x86dd) tos = (uint8_t)(eh[14] << 4 | eh[15] >> 4); // TC field
+        return mtk_dscp_tid((uint8_t)(tos >> 2));
+    }
+    return 0;
+}
