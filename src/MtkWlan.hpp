@@ -124,6 +124,7 @@ private:
     void rxRelease(MtkRing &r);
     void setupInterrupt();
     static void interruptHandler(OSObject *owner, void *ref, IOService *nub, int source);
+    static IOReturn gatedIrqRx(OSObject *owner, void *, void *, void *, void *);
     uint8_t nextSeq();
     int mcuCmd(uint8_t cid, const void *payload, uint32_t plen);
     int mcuWait(uint8_t cid, uint8_t seq);
@@ -300,6 +301,8 @@ private:
     MtkRing rxWa;              // MT7927 RXQ_DATA2 (7): MCU WA/tx-done events, drained and discarded
     int irqIndex = -1;
     volatile uint32_t irqCount = 0, irqLastStatus = 0;
+    volatile bool irqRxPending = false;         // W-07: an RX interrupt is queued (or ran) for this tick
+    uint32_t lastIrqRxTick = 0;
     uint32_t rxEvents = 0, rxUnmatched = 0, fwBytes = 0;
     uint8_t mcuSeq = 0;
 

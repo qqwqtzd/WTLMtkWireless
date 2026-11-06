@@ -493,7 +493,11 @@ void MtkWlan::timerFired(OSObject *owner, IOTimerEventSource *) {
 void MtkWlan::tick() {
     timer->setTimeoutUS(TICK_US);               // first, so nothing below can stop the clock
     ticks++;
-    pollRx();
+    // W-07: RX is interrupt-kicked; only fall back to the 1 ms poll when the
+    // interrupt path has not run (its runAction queued behind the gate).
+    if (!irqRxPending || ticks - lastIrqRxTick > 3)
+        pollRx();
+    lastIrqRxTick = ticks;
     uint32_t len = 0;
     const uint8_t *p;
     for (int guard = 0; guard < 64 && (p = rxPoll(rxMcu, &len)); guard++) {
