@@ -160,7 +160,7 @@ IOReturn MtkWlanEth::setPromiscuousMode(bool) { return kIOReturnSuccess; }
 IOReturn MtkWlanEth::setMulticastMode(bool) { return kIOReturnSuccess; }
 IOReturn MtkWlanEth::setMulticastList(IOEthernetAddress *, UInt32) { return kIOReturnSuccess; }
 const OSString *MtkWlanEth::newVendorString() const { return OSString::withCString("MediaTek"); }
-const OSString *MtkWlanEth::newModelString() const { return OSString::withCString("MT7925 (MtkWlan)"); }
+const OSString *MtkWlanEth::newModelString() const { return OSString::withCString("MediaTek MT792x (MtkWlan)"); }
 
 // Runs on the core's gate (IOGatedOutputQueue on the shared work loop)
 UInt32 MtkWlanEth::outputPacket(mbuf_t m, void *) {

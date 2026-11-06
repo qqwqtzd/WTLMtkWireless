@@ -15,21 +15,21 @@
 	<key>CFBundlePackageType</key>
 	<string>KEXT</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.12.1</string>
+	<string>0.13.0</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>0.12.1</string>
+	<string>0.13.0</string>
 	<key>IOKitPersonalities</key>
 	<dict>
-		<key>MT7925 PCIe</key>
+		<key>MediaTek MT7925 / MT7927 PCIe</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
 			<string>org.watchthelight.MtkWlan</string>
 			<key>IOClass</key>
 			<string>MtkWlan</string>
 			<key>IOPCIPrimaryMatch</key>
-			<string>0x792514c3 0x071714c3</string>
+			<string>0x792514c3 0x071714c3 0x792714c3 0x663914c3 0x073814c3</string>
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 			<key>IOUserClientClass</key>

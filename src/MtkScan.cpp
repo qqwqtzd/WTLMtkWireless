@@ -205,6 +205,15 @@ void MtkWlan::pollRx() {
         dispatchRx(p, len);
         rxRelease(rxData);
     }
+    // MT7927 has a second MCU RX ring (RXQ_DATA2=7) for WA/tx-done events. This driver polls TX status and does
+    // not consume them, but the ring must be drained or the firmware stalls.
+    if (isMt7927 && rxWa.desc.va) {
+        for (int guard = 0; guard < 128; guard++) {
+            uint32_t len = 0;
+            if (!rxPoll(rxWa, &len)) break;
+            rxRelease(rxWa);
+        }
+    }
 }
 
 // Where the 802.11 frame starts in an RX buffer (mt7925_mac_fill_rx): RXD 32 bytes, then groups 4, 1, 2, 3
@@ -451,7 +460,7 @@ int MtkWlan::devInfo(bool enable) {
     put16(b + 0, 0);            // UNI_BSS_INFO_BASIC
     put16(b + 2, 32);
     b[4] = enable ? 1 : 0;      // active
-    b[7] = 0xff;                // band_idx
+    b[7] = isMt7927 ? 0 : 0xff; // band_idx: MT7927 uses 0 (2.4 GHz) / 1 (5/6 GHz); 0 for the idle record
     put32(b + 8, 0x10001);      // CONNECTION_INFRA_STA
     b[12] = 1;                  // conn_state
     put16(b + 20, 19);          // bmc_tx_wlan_idx (itlmt7925 value, WTBL reserved)
@@ -516,6 +525,13 @@ int MtkWlan::hwInit(bool keepMac) {
     macInitBand(1);
     setNum("MtkW4DmaDcr0", rr(dmaDcr0(0)));
     setNum("MtkW4Rfcr", rr(rmacBase(0)));
+
+    // 3b. MT7927: enable dual-band concurrency (mt7925_mcu_set_dbdc, UNI_MBMC_SETTING). Linux logs and
+    // continues if this fails, so a failure here is only published.
+    if (isMt7927) {
+        uint8_t dbdc[12] = {0, 0, 0, 0, 0, 0, 8, 0, 1, 0, 0, 0};
+        setNum("MtkW4Dbdc", (uint32_t)uniCmd(0x28, dbdc, sizeof(dbdc), false, nullptr, 0, nullptr));
+    }
 
     // 4. station interface (mt76_connac_mcu_uni_add_dev, NL80211_IFTYPE_STATION)
     setNum("MtkW4DevInfo", (uint32_t)devInfo(true));

@@ -95,6 +95,8 @@ public:
     bool pollMsec(uint32_t reg, uint32_t mask, uint32_t val, int timeoutMs, int tickMs);
 
 private:
+    bool isMt7927 = false;     // PCI 14c3:7927 / 14c3:6639 / 14c3:0738 (MT6639 silicon)
+    uint16_t pciDeviceId = 0;
     uint32_t rawRead(uint32_t off);
     void rawWrite(uint32_t off, uint32_t val);
     uint32_t rawRmw(uint32_t off, uint32_t mask, uint32_t val);
@@ -295,6 +297,7 @@ private:
 
     IOMapper *mapper = nullptr;
     MtkRing txData, txMcu, txFwdl, rxMcu, rxData;
+    MtkRing rxWa;              // MT7927 RXQ_DATA2 (7): MCU WA/tx-done events, drained and discarded
     int irqIndex = -1;
     volatile uint32_t irqCount = 0, irqLastStatus = 0;
     uint32_t rxEvents = 0, rxUnmatched = 0, fwBytes = 0;

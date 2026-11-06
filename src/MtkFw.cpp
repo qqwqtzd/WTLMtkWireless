@@ -16,6 +16,12 @@ extern const char mtk_fw_patch_sha256[];
 extern const unsigned char mtk_fw_ram[];
 extern const unsigned int mtk_fw_ram_len;
 extern const char mtk_fw_ram_sha256[];
+extern const unsigned char mtk_fw_patch_7927[];
+extern const unsigned int mtk_fw_patch_7927_len;
+extern const char mtk_fw_patch_7927_sha256[];
+extern const unsigned char mtk_fw_ram_7927[];
+extern const unsigned int mtk_fw_ram_7927_len;
+extern const char mtk_fw_ram_7927_sha256[];
 }
 
 namespace {
@@ -43,6 +49,22 @@ constexpr uint32_t WFDMA_DUMMY_CR          = 0x54000120;
 constexpr uint32_t HW_EMI_CTL              = 0x18011100;
 constexpr uint32_t WFSYS_SW_RST_B_REG      = 0x7c000140;
 constexpr uint32_t CONN_ON_MISC            = 0x7c0600f0;
+// mt7927: CBTOP/CBInfra reset + WFDMA prefetch (mt792x_regs.h, mt792x_dma.c)
+constexpr uint32_t MT7927_CBINFRA_RGU_WF_RST     = 0x1f8600;
+constexpr uint32_t MT7927_CBINFRA_MCU_OWN_SET    = 0x1f5034;
+constexpr uint32_t MT7927_ROMCODE_INDEX          = 0xc1604;
+constexpr uint32_t MT7927_MCU_IDLE_VALUE         = 0x1d1e;
+constexpr uint32_t MT7927_PCIE2AP_REMAP_WF_0_54  = 0x21008;
+constexpr uint32_t MT7927_PCIE2AP_REMAP_MASK     = 0xffff;
+constexpr uint32_t MT7927_PCIE2AP_REMAP_VAL      = 0x1807;
+constexpr uint32_t MT7927_SEMA_OWN_STA           = 0x40000;
+constexpr uint32_t MT7927_SEMA_OWN_STA_REP       = 0x40400;
+constexpr uint32_t WFDMA_EXT_CSR                 = 0xd7000;
+constexpr uint32_t WFDMA_PREFETCH_CTRL           = WFDMA_EXT_CSR + 0x30;
+constexpr uint32_t WFDMA_PREFETCH_CFG0           = WFDMA_EXT_CSR + 0xf0;
+constexpr uint32_t WFDMA_PREFETCH_CFG1           = WFDMA_EXT_CSR + 0xf4;
+constexpr uint32_t WFDMA_PREFETCH_CFG2           = WFDMA_EXT_CSR + 0xf8;
+constexpr uint32_t WFDMA_PREFETCH_CFG3           = WFDMA_EXT_CSR + 0xfc;
 
 constexpr uint32_t GLO_TX_DMA_EN = 1u << 0, GLO_TX_DMA_BUSY = 1u << 1, GLO_RX_DMA_EN = 1u << 2,
                    GLO_RX_DMA_BUSY = 1u << 3, GLO_TX_WB_DDONE = 1u << 6, GLO_FIFO_DIS_CHECK = 1u << 11,
@@ -52,15 +74,21 @@ constexpr uint32_t GLO_TX_DMA_EN = 1u << 0, GLO_TX_DMA_BUSY = 1u << 1, GLO_RX_DM
 constexpr uint32_t GLO_DMA_SIZE_3 = 3u << 4;
 
 // interrupt masks (mt7925/regs.h, mt792x_regs.h)
-constexpr uint32_t INT_RX_DONE_WM = 1u << 0, INT_RX_DONE_DATA = 1u << 2, INT_TX_DONE_BAND0 = 1u << 4,
+constexpr uint32_t INT_RX_DONE_WM_7925 = 1u << 0, INT_RX_DONE_DATA_7925 = 1u << 2;
+constexpr uint32_t INT_RX_DONE_WM_7927 = 1u << 14, INT_RX_DONE_DATA_7927 = 1u << 12,
+                   INT_RX_DONE_WM2_7927 = 1u << 15;
+constexpr uint32_t INT_TX_DONE_BAND0 = 1u << 4,
                    INT_TX_DONE_MCU = (1u << 25) | (1u << 27) | (1u << 26), INT_MCU_CMD = 1u << 29;
 constexpr uint32_t INT_TX_DONE_ALL = INT_TX_DONE_MCU | INT_TX_DONE_BAND0 | 0x7fff0; // GENMASK(18, 4)
 
 // descriptors (dma.h)
 constexpr uint32_t DMA_CTL_SD_LEN0_SHIFT = 16, DMA_CTL_LAST_SEC0 = 1u << 30, DMA_CTL_DMA_DONE = 1u << 31;
 
-// rings: Linux sizes are 2048/256/128/1536/512; smaller rings are enough for bring-up
-constexpr uint16_t TXQ_BAND0 = 0, TXQ_MCU_WM = 15, TXQ_FWDL = 16, RXQ_MCU_WM = 0, RXQ_BAND0 = 2;
+// rings: Linux sizes are 2048/256/128/1536/512; smaller rings are enough for bring-up.
+// MT7927 moves the MCU/data RX rings to 6/4 and adds RXQ_DATA2=7 (MCU WA / tx-done).
+constexpr uint16_t TXQ_BAND0 = 0, TXQ_MCU_WM = 15, TXQ_FWDL = 16;
+constexpr uint16_t RXQ_MCU_WM_7925 = 0, RXQ_BAND0_7925 = 2;
+constexpr uint16_t RXQ_MCU_WM_7927 = 6, RXQ_BAND0_7927 = 4, RXQ_DATA2_7927 = 7;
 
 // MCU commands (mt76_connac_mcu.h)
 constexpr uint8_t CMD_TARGET_ADDRESS_LEN_REQ = 0x01, CMD_FW_START_REQ = 0x02, CMD_PATCH_START_REQ = 0x05,
@@ -274,7 +302,8 @@ int MtkWlan::patchSem(bool get) {
 
 // mt76_connac2_load_patch
 int MtkWlan::loadPatch() {
-    const uint8_t *fw = mtk_fw_patch;
+    const uint8_t *fw = isMt7927 ? mtk_fw_patch_7927 : mtk_fw_patch;
+    const uint32_t fwLen = isMt7927 ? mtk_fw_patch_7927_len : mtk_fw_patch_len;
     int sem = patchSem(true);
     setNum("MtkW3PatchSemGet", (uint32_t)sem);
     if (sem == PATCH_IS_DL) return 0;
@@ -293,7 +322,7 @@ int MtkWlan::loadPatch() {
             if (enc == 1) mode |= DL_MODE_ENCRYPT | (((info & 0xff) << 1) & 0x6) | DL_MODE_RESET_SEC_IV;
             else if (enc == 2) mode |= DL_MODE_ENCRYPT | DL_CONFIG_ENCRY_MODE_SEL | DL_MODE_RESET_SEC_IV;
         }
-        if (offs + len > mtk_fw_patch_len) { ret = -3; break; }
+        if (offs + len > fwLen) { ret = -3; break; }
         int r = initDownload(addr, len, mode);
         setNum(i ? "MtkW3PatchInit1" : "MtkW3PatchInit0", (uint32_t)r);
         if (r) { ret = -4; break; }
@@ -313,9 +342,10 @@ int MtkWlan::loadPatch() {
 
 // mt76_connac2_load_ram + mt76_connac_mcu_send_ram_firmware (WM only, no WA on mt7925)
 int MtkWlan::loadRam() {
-    const uint8_t *fw = mtk_fw_ram;
+    const uint8_t *fw = isMt7927 ? mtk_fw_ram_7927 : mtk_fw_ram;
+    const uint32_t fwLen = isMt7927 ? mtk_fw_ram_7927_len : mtk_fw_ram_len;
     const uint32_t trailerLen = 36, regionLen = 40;   // sizeof fw_trailer / fw_region (checked against the blob)
-    const uint8_t *hdr = fw + mtk_fw_ram_len - trailerLen;
+    const uint8_t *hdr = fw + fwLen - trailerLen;
     uint32_t nRegion = hdr[2];
     setNum("MtkW3RamRegions", nRegion);
     char ver[32] = {};
@@ -334,7 +364,7 @@ int MtkWlan::loadRam() {
             uint32_t mode = DL_MODE_NEED_RSP | (((feature >> 1) & 3) << 1);   // mt76_connac_mcu_gen_dl_mode
             if (feature & FW_FEATURE_SET_ENCRYPT) mode |= DL_MODE_ENCRYPT | DL_MODE_RESET_SEC_IV;
             if (feature & FW_FEATURE_ENCRY_MODE) mode |= DL_CONFIG_ENCRY_MODE_SEL;
-            if (offset + len > mtk_fw_ram_len) return -1;
+            if (offset + len > fwLen) return -1;
             if (initDownload(addr, len, mode)) return -2;
             if (sendScatter(fw + offset, len)) return -3;
         }
@@ -356,11 +386,33 @@ int MtkWlan::hwStart() {
     // rest of mt7925_pci_probe after drv_own
     rmw(HW_EMI_CTL, 1u << 1, 1u << 1);                         // SLPPROT_EN
 
-    // mt792x_wfsys_reset: drop the firmware Windows left running
-    rmw(WFSYS_SW_RST_B_REG, 1u << 0, 0);
-    IOSleep(50);
-    rmw(WFSYS_SW_RST_B_REG, 1u << 0, 1u << 0);
-    bool rstDone = pollMsec(WFSYS_SW_RST_B_REG, 1u << 4, 1u << 4, 500, 10);
+    // mt792x_wfsys_reset: drop the firmware Windows left running.
+    // MT7927 uses the CBInfra reset path (mt7927_wfsys_reset) instead of WFSYS_SW_RST_B.
+    bool rstDone;
+    if (isMt7927) {
+        auto semaRead = [this](uint32_t addr) {
+            uint32_t remap = rr(MT7927_PCIE2AP_REMAP_WF_0_54);
+            wr(MT7927_PCIE2AP_REMAP_WF_0_54,
+               (remap & ~MT7927_PCIE2AP_REMAP_MASK) | MT7927_PCIE2AP_REMAP_VAL);
+            IODelay(10);
+            (void)rr(addr);
+            wr(MT7927_PCIE2AP_REMAP_WF_0_54, remap);
+            IODelay(10);
+        };
+        semaRead(MT7927_SEMA_OWN_STA);
+        rmw(MT7927_CBINFRA_RGU_WF_RST, 1u << 4, 1u << 4);
+        IODelay(1500);
+        rmw(MT7927_CBINFRA_RGU_WF_RST, 1u << 4, 0);
+        IOSleep(7);
+        wr(MT7927_CBINFRA_MCU_OWN_SET, 1u);
+        rstDone = pollMsec(MT7927_ROMCODE_INDEX, 0xffff, MT7927_MCU_IDLE_VALUE, 200, 10);
+        semaRead(MT7927_SEMA_OWN_STA_REP);
+    } else {
+        rmw(WFSYS_SW_RST_B_REG, 1u << 0, 0);
+        IOSleep(50);
+        rmw(WFSYS_SW_RST_B_REG, 1u << 0, 1u << 0);
+        rstDone = pollMsec(WFSYS_SW_RST_B_REG, 1u << 4, 1u << 4, 500, 10);
+    }
     setNum("MtkW2ConnOnMiscAfterReset", rr(CONN_ON_MISC));
     if (!rstDone) { step("W2 fail: wfsys reset"); return -1; }
 
@@ -375,6 +427,10 @@ int MtkWlan::hwStart() {
         step("W2 fail: WFDMA still busy");
         return -2;
     }
+    if (isMt7927) {
+        rawWrite(WFDMA0_RST_DTX_PTR, ~0u);
+        rawWrite(WFDMA0_RST_DRX_PTR, ~0u);
+    }
     rawWrite(WFDMA0_GLO_CFG_EXT0, rawRead(WFDMA0_GLO_CFG_EXT0) & ~(1u << 6));   // DMASHDL off
     rmw(DMASHDL_SW_CONTROL, 1u << 28, 1u << 28);                                  // DMASHDL bypass
     rawWrite(WFDMA0_RST, rawRead(WFDMA0_RST) & ~((1u << 5) | (1u << 4)));
@@ -386,39 +442,65 @@ int MtkWlan::hwStart() {
         if (r.desc.va) { ringReset(r); return 0; }
         return ringAlloc(r, rx, idx, n, size);
     };
+    uint16_t rxMcuIdx = isMt7927 ? RXQ_MCU_WM_7927 : RXQ_MCU_WM_7925;
+    uint16_t rxDataIdx = isMt7927 ? RXQ_BAND0_7927 : RXQ_BAND0_7925;
     if ((e = ring(txData, false, TXQ_BAND0, 1024, 2048)))  { setNum("MtkW2RingFail", 100 + e); step("W2 fail: ring alloc"); return -3; }
     rawWrite(TX_RING0_EXT_CTRL, 0x4);
     if ((e = ring(txMcu, false, TXQ_MCU_WM, 32, 2048)))  { setNum("MtkW2RingFail", 200 + e); step("W2 fail: ring alloc"); return -3; }
     if ((e = ring(txFwdl, false, TXQ_FWDL, 32, 4096)))   { setNum("MtkW2RingFail", 300 + e); step("W2 fail: ring alloc"); return -3; }
-    if ((e = ring(rxMcu, true, RXQ_MCU_WM, 128, 2048)))   { setNum("MtkW2RingFail", 400 + e); step("W2 fail: ring alloc"); return -3; }
-    if ((e = ring(rxData, true, RXQ_BAND0, 512, 2048)))   { setNum("MtkW2RingFail", 500 + e); step("W2 fail: ring alloc"); return -3; }
+    if ((e = ring(rxMcu, true, rxMcuIdx, 128, 2048)))     { setNum("MtkW2RingFail", 400 + e); step("W2 fail: ring alloc"); return -3; }
+    if ((e = ring(rxData, true, rxDataIdx, 512, 2048)))   { setNum("MtkW2RingFail", 500 + e); step("W2 fail: ring alloc"); return -3; }
+    if (isMt7927 && (e = ring(rxWa, true, RXQ_DATA2_7927, 512, 2048)))
+        { setNum("MtkW2RingFail", 600 + e); step("W2 fail: ring alloc"); return -3; }
     setNum("MtkW2RxMcuIova", rxMcu.desc.iova);
     setNum("MtkW2RxMcuPhys", rxMcu.desc.phys, 64);   // equal to the iova: no VT-d translation
 
-    // mt792x_dma_enable (mt7925 branch of mt792x_dma_prefetch)
+    // mt792x_dma_enable: MT7925 and MT7927 have different prefetch tables (mt792x_dma_prefetch).
     auto pf = [](uint32_t base, uint32_t depth) { return (base << 16) | depth; };
-    rawWrite(WFDMA0 + 0x680, pf(0x0000, 0x4));
-    rawWrite(WFDMA0 + 0x684, pf(0x0040, 0x4));
-    rawWrite(WFDMA0 + 0x688, pf(0x0080, 0x4));
-    rawWrite(WFDMA0 + 0x68c, pf(0x00c0, 0x4));
-    rawWrite(WFDMA0 + 0x600, pf(0x0100, 0x10));
-    rawWrite(WFDMA0 + 0x604, pf(0x0200, 0x10));
-    rawWrite(WFDMA0 + 0x608, pf(0x0300, 0x10));
-    rawWrite(WFDMA0 + 0x60c, pf(0x0400, 0x10));
-    rawWrite(WFDMA0 + 0x63c, pf(0x0500, 0x4));
-    rawWrite(WFDMA0 + 0x640, pf(0x0540, 0x4));
+    if (isMt7927) {
+        rawWrite(WFDMA_PREFETCH_CTRL, rawRead(WFDMA_PREFETCH_CTRL));
+        rawWrite(WFDMA_PREFETCH_CFG0, 0x660077);
+        rawWrite(WFDMA_PREFETCH_CFG1, 0x1100);
+        rawWrite(WFDMA_PREFETCH_CFG2, 0x30004f);
+        rawWrite(WFDMA_PREFETCH_CFG3, 0x542200);
+        rawWrite(WFDMA0 + 0x690, pf(0x0000, 0x8));   // RX ring 4
+        rawWrite(WFDMA0 + 0x698, pf(0x0080, 0x8));   // RX ring 6
+        rawWrite(WFDMA0 + 0x69c, pf(0x0100, 0x4));   // RX ring 7
+        rawWrite(WFDMA0 + 0x640, pf(0x0140, 0x4));   // TX ring 16
+        rawWrite(WFDMA0 + 0x63c, pf(0x0180, 0x10));  // TX ring 15
+        rawWrite(WFDMA0 + 0x600, pf(0x0280, 0x4));   // TX ring 0
+    } else {
+        rawWrite(WFDMA0 + 0x680, pf(0x0000, 0x4));
+        rawWrite(WFDMA0 + 0x684, pf(0x0040, 0x4));
+        rawWrite(WFDMA0 + 0x688, pf(0x0080, 0x4));
+        rawWrite(WFDMA0 + 0x68c, pf(0x00c0, 0x4));
+        rawWrite(WFDMA0 + 0x600, pf(0x0100, 0x10));
+        rawWrite(WFDMA0 + 0x604, pf(0x0200, 0x10));
+        rawWrite(WFDMA0 + 0x608, pf(0x0300, 0x10));
+        rawWrite(WFDMA0 + 0x60c, pf(0x0400, 0x10));
+        rawWrite(WFDMA0 + 0x63c, pf(0x0500, 0x4));
+        rawWrite(WFDMA0 + 0x640, pf(0x0540, 0x4));
+    }
     rawWrite(WFDMA0_RST_DTX_PTR, ~0u);
-    rawWrite(WFDMA0_RST_DRX_PTR, ~0u);
+    if (!isMt7927) rawWrite(WFDMA0_RST_DRX_PTR, ~0u);   // mt792x_dma_enable: only MT7925 resets DRX here
     rawWrite(WFDMA0_PRI_DLY_INT_CFG0, 0);
     rawWrite(WFDMA0_GLO_CFG, rawRead(WFDMA0_GLO_CFG) | GLO_TX_WB_DDONE | GLO_FIFO_LITTLE_ENDIAN |
              GLO_CLK_GAT_DIS | GLO_OMIT_TX_INFO | GLO_DMA_SIZE_3 | GLO_FIFO_DIS_CHECK | GLO_RX_WB_DDONE |
              GLO_CSR_DISP_BASE_PTR_CHAIN_EN | GLO_OMIT_RX_INFO_PFET2);
     rawWrite(WFDMA0_GLO_CFG, rawRead(WFDMA0_GLO_CFG) | GLO_TX_DMA_EN | GLO_RX_DMA_EN);
+    if (isMt7927) {
+        // mt7927_wfdma_setup: address extension + firmware download bypass, loopback queue select off
+        rawWrite(WFDMA0_GLO_CFG, rawRead(WFDMA0_GLO_CFG) | (1u << 26) | (1u << 9));
+        rawWrite(WFDMA0_GLO_CFG, rawRead(WFDMA0_GLO_CFG) & ~(1u << 20));
+    }
     rmw(UWFDMA0_GLO_CFG_EXT1, 1u << 28, 1u << 28);
     rawWrite(WFDMA0_INT_RX_PRI, rawRead(WFDMA0_INT_RX_PRI) | 0x0f00);
     rawWrite(WFDMA0_INT_TX_PRI, rawRead(WFDMA0_INT_TX_PRI) | 0x7f00);
     rmw(WFDMA_DUMMY_CR, 1u << 1, 1u << 1);                                       // NEED_REINIT
-    rawWrite(WFDMA0_HOST_INT_ENA, INT_TX_DONE_ALL | INT_RX_DONE_DATA | INT_RX_DONE_WM | INT_MCU_CMD);
+    uint32_t rxIrq = isMt7927
+        ? (INT_RX_DONE_DATA_7927 | INT_RX_DONE_WM_7927 | INT_RX_DONE_WM2_7927)
+        : (INT_RX_DONE_DATA_7925 | INT_RX_DONE_WM_7925);
+    rawWrite(WFDMA0_HOST_INT_ENA, INT_TX_DONE_ALL | rxIrq | INT_MCU_CMD);
     rawWrite(WFDMA0_MCU2HOST_SW_INT_ENA, rawRead(WFDMA0_MCU2HOST_SW_INT_ENA) | 1u << 0);
     setNum("MtkW2GloCfg", rawRead(WFDMA0_GLO_CFG));
     step("W2 pass: WFDMA rings up");
@@ -430,8 +512,8 @@ int MtkWlan::hwStart() {
     if (drv < 0) { step("W3 fail: drv_own before firmware"); return -4; }
     rmw(PCIE_MAC_PM, 1u << 8, 1u << 8);                                           // L0S_DIS
 
-    setProperty("MtkFwPatchSha256", mtk_fw_patch_sha256);
-    setProperty("MtkFwRamSha256", mtk_fw_ram_sha256);
+    setProperty("MtkFwPatchSha256", isMt7927 ? mtk_fw_patch_7927_sha256 : mtk_fw_patch_sha256);
+    setProperty("MtkFwRamSha256", isMt7927 ? mtk_fw_ram_7927_sha256 : mtk_fw_ram_sha256);
     int p = loadPatch();
     setNum("MtkW3PatchResult", (uint32_t)p);
     if (p) { step("W3 fail: patch download"); return -5; }

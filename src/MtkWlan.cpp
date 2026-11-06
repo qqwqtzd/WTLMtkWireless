@@ -93,6 +93,20 @@ bool MtkWlan::start(IOService *provider) {
         return true; // stay attached so the state is visible
     }
     pci->retain();
+    pciDeviceId = pci->configRead16(kIOPCIConfigDeviceID);
+    isMt7927 = (pciDeviceId == 0x7927 || pciDeviceId == 0x6639 || pciDeviceId == 0x0738);
+    setNum("MtkPciDeviceId", pciDeviceId, 16);
+    setProperty("MtkChipFamily", isMt7927 ? "MT7927" : "MT7925");
+    // Linux mt7925_pci_probe: ASPM L1 makes MT7927 WFDMA register access unreliable.
+    if (isMt7927) {
+        UInt8 capOff = 0;
+        if (pci->findPCICapability(kIOPCIPCIExpressCapability, &capOff)) {
+            UInt16 lc = pci->configRead16(capOff + 0x10);   // PCIe Link Control
+            setNum("MtkPcieLinkCtlBefore", lc, 16);
+            if (lc & 0x3) pci->configWrite16(capOff + 0x10, (UInt16)(lc & ~0x3)); // clear L0s + L1
+            setNum("MtkPcieLinkCtlAfter", pci->configRead16(capOff + 0x10), 16);
+        }
+    }
     // IONetworkingFamily takes the interface's IOBuiltin from the controller's provider, which is now this
     // core and no longer the PCI device: carry the device's "built-in" over so en1 stays built-in
     if (OSObject *builtin = pci->getProperty("built-in")) setProperty("built-in", builtin);
@@ -183,8 +197,15 @@ bool MtkWlan::start(IOService *provider) {
         return true;
     }
 
-    uint32_t chipId = rr(MT_HW_CHIPID);
+    uint32_t rawChipId = rr(MT_HW_CHIPID);
     uint32_t hwRev = rr(MT_HW_REV);
+    setNum("MtkRawChipId", rawChipId);
+    uint32_t chipId = rawChipId;
+    // Linux mt7925_pci_probe: some MT7927 boards return 0x0000/0x6639/0x0738; force chip=0x7927.
+    if (isMt7927 && (rawChipId & 0xffff) != 0x7927) {
+        chipId = (0x7927u << 16) | (rawChipId & 0xff);
+        setNum("MtkChipIdForced", chipId);
+    }
     setNum("MtkChipId", chipId);
     setNum("MtkHwRev", hwRev);
     setNum("MtkAsicRevision", (chipId << 16) | (hwRev & 0xff)); // mdev->rev in mt7925_pci_probe
@@ -192,11 +213,15 @@ bool MtkWlan::start(IOService *provider) {
     setNum("MtkWfsysSwRst", rr(MT_WFSYS_SW_RST_B));
     setNum("MtkBadAccess", badAccess);
 
-    if ((chipId & 0xffff) != 0x7925) {
+    bool chipOk = isMt7927
+        ? ((rawChipId & 0xffff) == 0x7927 || (rawChipId & 0xffff) == 0x6639 ||
+           (rawChipId & 0xffff) == 0x0738 || (rawChipId & 0xffff) == 0x0000)
+        : ((rawChipId & 0xffff) == 0x7925);
+    if (!chipOk) {
         step("W1 partial: drv_own ok, unexpected chip id");
         return true;
     }
-    step("W1 pass: drv_own ok, chip 7925");
+    step(isMt7927 ? "W1 pass: drv_own ok, chip 7927" : "W1 pass: drv_own ok, chip 7925");
 
     mapper = IOMapper::copyMapperForDevice(pci);
     setProperty("MtkMapper", mapper ? "device mapper" : "none (physical addresses)");
@@ -258,7 +283,7 @@ void MtkWlan::stop(IOService *provider) {
     if (mmio)
         rawWrite(0xd4208, rawRead(0xd4208) & ~0x5u); // WFDMA0 GLO_CFG: stop TX/RX DMA before freeing rings
     for (uint8_t t = 0; t < 8; t++) rxBaStop(t);
-    ringFree(txData); ringFree(txMcu); ringFree(txFwdl); ringFree(rxMcu); ringFree(rxData);
+    ringFree(txData); ringFree(txMcu); ringFree(txFwdl); ringFree(rxMcu); ringFree(rxData); ringFree(rxWa);
     OSSafeReleaseNULL(mapper);
     OSSafeReleaseNULL(map);
     mmio = nullptr;
