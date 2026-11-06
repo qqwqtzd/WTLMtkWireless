@@ -466,7 +466,7 @@ uint8_t *MtkWlan::assocIes(uint8_t *p, bool ht) {
         p += 12;
     }
     if (apHe) {                                 // HE Capabilities (ext id 35), 2 streams, 80 MHz
-        static const uint8_t heMac[6] = {0x01, 0x08, 0x00, 0x1a, 0x40, 0x00};
+        static const uint8_t heMac[6] = {0x01, 0x08, 0x00, 0x1a, 0x00, 0x00};
         uint8_t hePhy[11] = {tgtCh > 14 ? (uint8_t)0x44 : (uint8_t)0x22,
                              0x70, 0xce, 0x12, 0x6d, 0xc0, 0x33, 0x06, 0x42, 0xbf, 0x00};
         *p++ = 255; uint8_t *hl = p++; *p++ = 35;
