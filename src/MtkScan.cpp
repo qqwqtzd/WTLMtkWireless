@@ -429,10 +429,18 @@ int MtkWlan::bssScore(const MtkBss &b) const {
     return s;
 }
 
-// Forget networks not seen for a minute (never the one being joined)
+// Forget networks not seen for a minute (never the one being joined, and never the one
+// the connection manager wants: it may be an AP that just restarted, and keeping it lets
+// cmPick rejoin from the stale cache before the next scan finishes).
 void MtkWlan::bssAge() {
+    bool wantHasBssid = false;
+    for (int i = 0; i < 6; i++) if (wantBssid[i]) wantHasBssid = true;
     for (int i = 0; i < nBss;) {
-        if (ticks - bss[i].lastSeen > BSS_AGE_TICKS && !(joinState && !memcmp(bss[i].bssid, tgtBssid, 6))) {
+        bool joining = joinState && !memcmp(bss[i].bssid, tgtBssid, 6);
+        bool wanted = wantActive && wantSsidLen &&
+                      bss[i].ssidLen == wantSsidLen && !memcmp(bss[i].ssid, wantSsid, wantSsidLen) &&
+                      (!wantHasBssid || !memcmp(bss[i].bssid, wantBssid, 6));
+        if (ticks - bss[i].lastSeen > BSS_AGE_TICKS && !joining && !wanted) {
             if (i != nBss - 1) bss[i] = bss[nBss - 1];
             nBss--;
             continue;
