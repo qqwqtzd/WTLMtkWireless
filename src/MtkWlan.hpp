@@ -80,6 +80,10 @@ public:
     // I-081: restart and power-off quiesce the chip so the next OS (or Recovery) finds it clean
     IOReturn setPowerState(unsigned long state, IOService *device) override;
     void systemWillShutdown(IOOptionBits specifier) override;
+    void pmSleep();
+    void pmWake();
+    static IOReturn gatedPmSleep(OSObject *owner, void *, void *, void *, void *);
+    static IOReturn gatedPmWake(OSObject *owner, void *, void *, void *, void *);
 
     // The core's work loop: the tick, RX and every front-end callback run on its gate
     IOWorkLoop *getWorkLoop() const override;
@@ -397,6 +401,9 @@ private:
     IOWorkLoop *workLoop = nullptr;
     IOTimerEventSource *timer = nullptr;
     bool pmJoined = false, quiesced = false;   // power plane membership (systemWillShutdown), quiesce done once
+    bool slept = false;                        // S-1: system sleep in progress (PCIe powered down)
+    uint32_t sleeps = 0, wakes = 0;            // sleep/wake cycles handled
+    int sleepRc = 0, wakeRc = 0;              // last pmSleep/pmWake result
     // attach recovery and the link supervisor (MtkSuper.c)
     uint32_t attachRecover = 0, attachFlr = 0, flrUnsupported = 0;
     mtk_super super = {};

@@ -27,6 +27,14 @@ constexpr uint32_t MT_CONN_ON_MISC          = 0x7c0600f0;
 constexpr uint32_t MT_HW_CHIPID             = 0x70010200;
 constexpr uint32_t MT_HW_REV                = 0x70010204;
 constexpr uint32_t MT_WFSYS_SW_RST_B        = 0x7c000140;
+constexpr uint32_t WFDMA0_S1                = 0xd4000;      // S-1 pmSleep/p.m. (same base as MtkFw.cpp)
+constexpr uint32_t PCIE_MAC_INT_ENABLE_S1   = 0x10188;
+constexpr uint32_t WFDMA0_HOST_INT_ENA_S1   = WFDMA0_S1 + 0x204;
+constexpr uint32_t WFDMA0_GLO_CFG_S1        = WFDMA0_S1 + 0x208;
+constexpr uint32_t GLO_TX_DMA_EN_S1         = 1u << 0;
+constexpr uint32_t GLO_TX_DMA_BUSY_S1       = 1u << 1;
+constexpr uint32_t GLO_RX_DMA_EN_S1         = 1u << 2;
+constexpr uint32_t GLO_RX_DMA_BUSY_S1       = 1u << 3;
 constexpr int      MT792x_DRV_OWN_RETRY_COUNT = 10;
 } // namespace
 
@@ -254,8 +262,67 @@ bool MtkWlan::start(IOService *provider) {
     return true;
 }
 
-// Sleep is off on this machine; system sleep and wake only need an acknowledgement
+// Sleep / wake (S-1). On sleep the PCIe link is powered down: DMA, interrupts and the
+// firmware go away, so on wake the chip must be rebuilt like an attach. pmSleep mirrors
+// quiesce() but keeps quiesced=false (that flag is only for shutdown); pmWake re-enables
+// bus mastering, loads the firmware again and lets the connection manager rejoin.
+IOReturn MtkWlan::gatedPmSleep(OSObject *owner, void *, void *, void *, void *) {
+    MtkWlan *self = OSDynamicCast(MtkWlan, owner);
+    if (self) self->pmSleep();
+    return kIOReturnSuccess;
+}
+IOReturn MtkWlan::gatedPmWake(OSObject *owner, void *, void *, void *, void *) {
+    MtkWlan *self = OSDynamicCast(MtkWlan, owner);
+    if (self) self->pmWake();
+    return kIOReturnSuccess;
+}
+
+void MtkWlan::pmSleep() {
+    if (!pci || !mmio || slept) return;
+    if (timer) timer->cancelTimeout();
+    if (irqIndex >= 0) pci->disableInterrupt(irqIndex);
+    rawWrite(WFDMA0_HOST_INT_ENA_S1, 0);
+    rawWrite(PCIE_MAC_INT_ENABLE_S1, 0);
+    drvOwn();
+    rawWrite(WFDMA0_GLO_CFG_S1, rawRead(WFDMA0_GLO_CFG_S1) & ~(GLO_TX_DMA_EN_S1 | GLO_RX_DMA_EN_S1));
+    pollMsec(WFDMA0_GLO_CFG_S1, GLO_TX_DMA_BUSY_S1 | GLO_RX_DMA_BUSY_S1, 0, 100, 1);
+    rmw(MT_WFSYS_SW_RST_B, 1u << 0, 0);
+    IOSleep(50);
+    rmw(MT_WFSYS_SW_RST_B, 1u << 0, 1u << 0);
+    pollMsec(MT_WFSYS_SW_RST_B, 1u << 4, 1u << 4, 500, 10);
+    pci->setBusMasterEnable(false);
+    slept = true;
+    sleeps++;
+    step("S1 sleep: DMA and firmware off, bus master off");
+    setNum("MtkPmSleeps", sleeps);
+}
+
+void MtkWlan::pmWake() {
+    if (!pci || !mmio) return;
+    pci->setBusMasterEnable(true);
+    slept = false;
+    wakes++;
+    uint32_t rc = reload("wake");
+    if (rc == 0 && timer) {
+        // reload() does not restart the tick timer (its constexpr lives in MtkNet.cpp);
+        // the same 1 ms interval keeps the tick alive after wake.
+        timer->setTimeoutUS(1000);
+    }
+    wakeRc = rc;
+    setNum("MtkPmWakes", wakes);
+    setNum("MtkPmWakeRc", (uint32_t)rc);
+    step(rc ? "S1 wake: reload failed" : "S1 wake: firmware reloaded, rejoining");
+}
+
+// System sleep and wake: quiesce the radio before the PCIe link drops, rebuild it after.
 IOReturn MtkWlan::setPowerState(unsigned long state, IOService *device) {
+    if (state == 0) {                                   // to sleep
+        if (workLoop) workLoop->runAction(gatedPmSleep, this, nullptr, nullptr, nullptr, nullptr);
+        else pmSleep();
+    } else if (slept) {                                 // back to full power
+        if (workLoop) workLoop->runAction(gatedPmWake, this, nullptr, nullptr, nullptr, nullptr);
+        else pmWake();
+    }
     return kIOPMAckImplied;
 }
 
