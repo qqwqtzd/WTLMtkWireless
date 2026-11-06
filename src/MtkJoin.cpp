@@ -97,6 +97,8 @@ void MtkWlan::parseAp() {
                 }
     }
     apHt = apVht = false;
+    apHe = false;
+    apHeMcs80 = apHeMcs160 = 0xffff;
     uint8_t vhtWidth = 0;
     for (const uint8_t *ie = tgtIe, *end = tgtIe + tgtIeLen; ie + 2 <= end && ie + 2 + ie[1] <= end; ie += 2 + ie[1]) {
         const uint8_t *b = ie + 2;
@@ -114,10 +116,17 @@ void MtkWlan::parseAp() {
             apVhtTx = le16(b + 8);
         } else if (ie[0] == 192 && ie[1] >= 3) {        // VHT Operation
             vhtWidth = b[0];
+        } else if (ie[0] == 255 && ie[1] >= 22 && b[0] == 35) {   // HE Capabilities (ext id 35)
+            memcpy(apHeMac, b + 1, 6);
+            memcpy(apHePhy, b + 7, 11);
+            apHeMcs80 = le16(b + 18);                   // RX HE-MCS/NSS, BW80
+            if ((apHePhy[0] & 0x08) && ie[1] >= 26) apHeMcs160 = le16(b + 22);
+            apHe = true;
         }
     }
     if (tgtCh <= 14) apVht = false;
-    apNss = (apRxMcs[1] || (apVht && ((apVhtRx >> 2) & 3) != 3)) ? 2 : 1;
+    apNss = (apRxMcs[1] || (apVht && ((apVhtRx >> 2) & 3) != 3) ||
+             (apHe && ((apHeMcs80 >> 2) & 3) != 0)) ? 2 : 1;
     chBw = 0;
     chCenter = tgtCh;
     if (apHt && (apHtOp & 4) && (apHtOp & 3)) {        // 40 MHz: secondary above (1) or below (3)
@@ -149,8 +158,11 @@ int MtkWlan::bssInfo(bool enable) {
     put16(b + 20, BMC_WCID);
     put16(b + 22, tgtBcnInt ? tgtBcnInt : 100);
     b[24] = 1;                                  // dtim_period
-    b[25] = tgtCh > 14 ? (uint8_t)(0x01 | (htActive ? 0x10 : 0) | (vhtActive ? 0x20 : 0))     // A | AN | AC
-                       : (uint8_t)(0x02 | 0x04 | (htActive ? 0x08 : 0));                      // B | G | GN
+    bool useHt = enable ? htActive : apHt;
+    bool useVht = enable ? vhtActive : apVht;
+    bool useHe = enable ? heActive : (apHe && htOn);
+    b[25] = tgtCh > 14 ? (uint8_t)(0x01 | (useHt ? 0x10 : 0) | (useVht ? 0x20 : 0) | (useHe ? 0x80 : 0)) // A | AN | AC | AX5
+                       : (uint8_t)(0x02 | 0x04 | (useHt ? 0x08 : 0) | (useHe ? 0x40 : 0));              // B | G | GN | AX2
     put16(b + 26, AP_WCID);
     put16(b + 28, tgtCh > 14 ? 3 : 1);          // nonht_basic_phy: OFDM / ERP
     uint8_t *s = m.tlv(16, 8);                  // UNI_BSS_INFO_SEC (mt7925_mcu_bss_sec_tlv): mode, status, cipher
@@ -171,6 +183,15 @@ int MtkWlan::bssInfo(bool enable) {
     uint8_t *f = m.tlv(23, 20);                 // UNI_BSS_INFO_IFS_TIME
     f[4] = 1;
     put16(f + 8, 9);
+    if (apHe && (enable ? heActive : htOn)) {   // UNI_BSS_INFO_HE_BASIC (mt7925_mcu_bss_he_tlv)
+        uint8_t *he = m.tlv(5, 16);
+        put16(he + 4, 1023);                    // he_rts_thres
+        he[6] = 4;                              // he_pe_duration
+        he[7] = 0;                              // su_disable
+        put16(he + 8, 0x000f);                  // our TX HE-MCS/NSS: BW80, 2 streams, MCS 0-11
+        put16(he + 10, 0xffff);                 // BW160 not supported
+        put16(he + 12, 0xffff);                 // BW80+80 not supported
+    }
     if (enable) {
         uint8_t *rl = m.tlv(2, 16);             // UNI_BSS_INFO_RLM (mt7925_mcu_bss_rlm_tlv)
         uint8_t bw = htActive ? chBw : 0, center = bw ? chCenter : tgtCh;
@@ -236,17 +257,17 @@ int MtkWlan::staRec(uint8_t state, bool newly, uint16_t aidArg) {
     put16(b + 10, aidArg);
     memcpy(b + 12, tgtBssid, 6);
     put16(b + 18, newly ? 3 : 1);               // EXTRA_INFO_VER | NEW
-    bool ht = state && htActive, vht = state && vhtActive;
+    bool ht = state && htActive, vht = state && vhtActive, he = state && heActive;
     uint8_t *p = m.tlv(0x15, 12);               // STA_REC_PHY
     put16(p + 4, apBasic);
-    p[6] = (uint8_t)((1u << 3) | (ht ? 1u << 4 : 0) | (vht ? 1u << 5 : 0));   // PHY_TYPE_BIT_OFDM | HT | VHT
+    p[6] = (uint8_t)((1u << 3) | (ht ? 1u << 4 : 0) | (vht ? 1u << 5 : 0) | (he ? 1u << 6 : 0)); // OFDM | HT | VHT | HE
     if (ht) {
         uint8_t af = apAmpdu & 3, mm = (apAmpdu >> 2) & 7;
         if (vht && ((apVhtCap >> 23) & 7) > af) af = (apVhtCap >> 23) & 7;
         p[7] = (uint8_t)(af | (mm << 2));       // ampdu: factor | density
         p[10] = af;                             // max_ampdu_len
     }
-    // Linux mt7925_mcu_sta_cmd order: BASIC, PHY, HT, VHT, ..., RA, STATE, MLD, HDR_TRANS
+    // Linux mt7925_mcu_sta_cmd order: BASIC, PHY, HT, VHT, HE, ..., RA, STATE, MLD, HDR_TRANS
     if (ht) {
         uint8_t *h = m.tlv(9, 8);               // STA_REC_HT: the AP's HT capability info, limited to ours
         put16(h + 4, (uint16_t)(apHtCap & (0x0001 | (chBw ? 0x0002 : 0) | 0x000c | 0x0020 | (chBw ? 0x0040 : 0) |
@@ -257,6 +278,15 @@ int MtkWlan::staRec(uint8_t state, bool newly, uint16_t aidArg) {
         put32(v + 4, apVhtCap & (0x3 | 0x10 | 0x20 | 0x80 | 0x700 | (7u << 23)));
         put16(v + 8, (uint16_t)(apVhtRx | 0xfff0));       // streams 3-8 not supported
         put16(v + 10, (uint16_t)(apVhtTx | 0xfff0));
+    }
+    if (he) {                                   // STA_REC_HE_V2 (mt76_connac_mcu_sta_he_tlv_v2)
+        uint8_t *heTlv = m.tlv(0x19, 28);
+        memcpy(heTlv + 4, apHeMac, 6);
+        memcpy(heTlv + 10, apHePhy, 11);
+        heTlv[21] = 2;                          // nominal packet padding 16 us
+        put16(heTlv + 22, apHeMcs80);           // BW80: the AP's RX HE-MCS/NSS map
+        put16(heTlv + 24, apHeMcs160);          // BW160
+        put16(heTlv + 26, 0xffff);              // BW80+80 not supported
     }
     uint8_t *ra = m.tlv(1, 16);                 // STA_REC_RA
     put16(ra + 4, (uint16_t)(apSupp << 6));     // RA_LEGACY_OFDM
@@ -435,6 +465,17 @@ uint8_t *MtkWlan::assocIes(uint8_t *p, bool ht) {
         put16(p + 10, 0);
         p += 12;
     }
+    if (apHe) {                                 // HE Capabilities (ext id 35), 2 streams, 80 MHz
+        static const uint8_t heMac[6] = {0x01, 0x08, 0x00, 0x1a, 0x40, 0x00};
+        uint8_t hePhy[11] = {tgtCh > 14 ? (uint8_t)0x44 : (uint8_t)0x22,
+                             0x70, 0xce, 0x12, 0x6d, 0xc0, 0x33, 0x06, 0x42, 0xbf, 0x00};
+        *p++ = 255; uint8_t *hl = p++; *p++ = 35;
+        memcpy(p, heMac, 6); p += 6;
+        memcpy(p, hePhy, 11); p += 11;
+        put16(p, 0x000f); p += 2;               // RX HE-MCS/NSS: 2 streams, MCS 0-11
+        put16(p, 0x000f); p += 2;               // TX HE-MCS/NSS
+        *hl = 22;
+    }
     static const uint8_t wmm[9] = {0xdd, 0x07, 0x00, 0x50, 0xf2, 0x02, 0x00, 0x01, 0x00};   // WMM information
     memcpy(p, wmm, 9);
     return p + 9;
@@ -495,7 +536,7 @@ bool MtkWlan::joinStart(int idx) {
     secCipher = CIPHER_NONE;                     // the association runs with the open values; the keys change it
     tgtFound = true;
     memcpy(cmLastBssid, tgtBssid, 6);
-    htActive = vhtActive = false;
+    htActive = vhtActive = heActive = false;
     aid = 0;
     wantFc = 0;
     mgmtLen = 0;
@@ -572,19 +613,28 @@ void MtkWlan::joinService() {
             aid = a;
             htActive = joinHtPass;
             vhtActive = joinHtPass && apVht;
+            heActive = joinHtPass && apHe && htActive;
             setNum("MtkW5Aid", aid);
             setNum("MtkW5AuthTx", authTx);
             setNum("MtkW5AssocTx", assocTx);
             {
                 static const char *bwName[3] = {"20", "40", "80"};
                 char mode[64];
-                snprintf(mode, sizeof(mode), "%s, %u MHz, %u stream%s", vhtActive ? "VHT" : htActive ? "HT" : "legacy 11a/g",
+                snprintf(mode, sizeof(mode), "%s, %u MHz, %u stream%s", heActive ? "HE" : vhtActive ? "VHT" : htActive ? "HT" : "legacy 11a/g",
                          htActive ? (chBw == 2 ? 80 : chBw == 1 ? 40 : 20) : 20, htActive ? apNss : 1, htActive && apNss > 1 ? "s" : "");
                 setProperty("MtkW8Mode", mode);
                 char ap[96];
                 snprintf(ap, sizeof(ap), "ht %d cap %04x ampdu %02x mcs %02x%02x op %02x vht %d cap %08x rx %04x tx %04x bw %s ctr %u",
                          apHt, apHtCap, apAmpdu, apRxMcs[0], apRxMcs[1], apHtOp, apVht, apVhtCap, apVhtRx, apVhtTx, bwName[chBw], chCenter);
                 setProperty("MtkW8Ap", ap);
+                if (apHe) {
+                    char he[128];
+                    snprintf(he, sizeof(he), "active %d mac %02x%02x%02x%02x%02x%02x phy %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x mcs80 %04x mcs160 %04x",
+                             heActive, apHeMac[0], apHeMac[1], apHeMac[2], apHeMac[3], apHeMac[4], apHeMac[5],
+                             apHePhy[0], apHePhy[1], apHePhy[2], apHePhy[3], apHePhy[4], apHePhy[5], apHePhy[6], apHePhy[7],
+                             apHePhy[8], apHePhy[9], apHePhy[10], apHeMcs80, apHeMcs160);
+                    setProperty("MtkW8He", he);
+                }
             }
             setNum("MtkW5BssUp", (uint32_t)bssInfo(true));
             setNum("MtkW5StaAssoc", (uint32_t)staRec(2, false, aid));

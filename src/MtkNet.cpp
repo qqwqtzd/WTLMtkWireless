@@ -227,6 +227,8 @@ void MtkWlan::rxFrame(const uint8_t *p, uint32_t len) {
     if (type != 2 || (f[1] & 3) != 2 || memcmp(f + 10, tgtBssid, 6) != 0) return;   // data, FromDS, from our AP
     if (sub & 4) return;                                              // null / no payload
     if (!(f[4] & 1) && memcmp(f + 4, mac, 6)) return;                 // unicast to another station
+    bool group = (f[4] & 1) != 0;
+    if (group) rxMcast++;
     bool protFrame = (f[1] & 0x40) != 0;
     uint32_t h = 24;
     if (sub & 8) {
@@ -237,8 +239,11 @@ void MtkWlan::rxFrame(const uint8_t *p, uint32_t len) {
     if (flen < h + 8) { rxBad++; return; }
     const uint8_t *l = f + h;
     if (memcmp(l, kSnap, 6) && memcmp(l, kBridgeTunnel, 6)) { rxNonSnap++; return; }
+    if (group && flen >= h + 8 + 41 && l[6] == 0x86 && l[7] == 0xdd) {   // IPv6 RA: ICMPv6 type 134
+        const uint8_t *ip6 = l + 8;
+        if ((ip6[0] >> 4) == 6 && ip6[6] == 58 && ip6[40] == 134) rxRa++;
+    }
     bool eapol = l[6] == 0x88 && l[7] == 0x8e;
-    bool group = (f[4] & 1) != 0;
     int pnSlot = -1;
     if (protFrame) {
         // decrypted by the hardware (CCMP header and MIC already stripped); the cipher must be the expected one
@@ -570,6 +575,8 @@ void MtkWlan::publishW6() {
     setNum("MtkW9TxFreeStatErr", tfStatErr);
     setNum("MtkW9Txd1", lastTxd1);
     setNum("MtkW9TxCh", tgtCh);
+    setNum("MtkW9RxMcast", rxMcast);
+    setNum("MtkW9RxRa", rxRa);
     char b[200];
     snprintf(b, sizeof(b), "rx sessions %u buffered %u dup %u timeout %u bar %u delba %u | tx state %u req %u status %u win %u ssn %u | rc %d",
              baRxSessions, baBuffered, baDup, baTimeoutRelease, barRx, delbaRx, txBaState, txBaRequests, baTxStatus, txBaWin,
@@ -873,6 +880,8 @@ void MtkWlan::opSetEnabled(void *core, int enabled) {
 static const uint16_t kRate20[10] = { 65, 130, 195, 260, 390, 520, 585, 650, 780, 867 };
 static const uint16_t kRate40[10] = { 135, 270, 405, 540, 810, 1080, 1215, 1350, 1620, 1800 };
 static const uint16_t kRate80[10] = { 293, 585, 878, 1170, 1755, 2340, 2633, 2925, 3510, 3900 };
+// HE 80 MHz 1 stream, 100 kbit/s, 0.8 us GI: MCS 0-11 (2SS doubles to 1201 Mbit/s at MCS 11)
+static const uint16_t kHe80[12] = { 430, 860, 1290, 1720, 2290, 2870, 3440, 3870, 4300, 5160, 5740, 6000 };
 // legacy rates in 100 kbit/s by hardware rate code: CCK 0-3 (4-7 short preamble), OFDM codes 8-15 (mt76 mt76_rates)
 static const uint16_t kCck[4] = { 10, 20, 55, 110 };
 static const uint16_t kOfdm[8] = { 480, 240, 120, 60, 540, 360, 180, 90 };
@@ -883,12 +892,21 @@ static uint32_t phyKbps(uint8_t mcs, uint8_t nss, uint8_t bw, bool sgi) {
     return sgi ? r * 10 / 9 : r;
 }
 
+static uint32_t heKbps(uint8_t mcs, uint8_t nss, uint8_t bw) {
+    if (mcs > 11) mcs = 11;
+    uint32_t r = kHe80[mcs] * 100u * (nss ? nss : 1);
+    return bw == 2 ? r : bw == 1 ? r / 2 : r / 4;
+}
+
 // Rate of the last TX status (TXS0 rate: mode 9:6, nss 13:10, index 5:0; BW 31:29), else the negotiated maximum
 void MtkWlan::rateInfo(mtk_rate_info *out) const {
     uint8_t bw = htActive ? chBw : 0;
     bool sgi = htActive && (bw == 2 ? (apVhtCap & 0x20) : bw == 1 ? (apHtCap & 0x40) : (apHtCap & 0x20));
     uint8_t maxMcs = 0;
-    if (vhtActive) {
+    if (heActive) {
+        uint8_t m = apHeMcs80 & 3;                // 3 = MCS 0-11, 2 = 0-9, 1 = 0-7, 0 = none
+        maxMcs = m == 3 ? 11 : m == 2 ? 9 : 7;
+    } else if (vhtActive) {
         uint8_t m = apVhtRx & 3;                  // the AP's 1-stream RX map: 0 = MCS 0-7, 1 = 0-8, 2 = 0-9
         maxMcs = m == 2 ? 9 : m == 1 ? 8 : 7;
         if (bw == 0 && maxMcs == 9) maxMcs = 8;   // VHT20 MCS 9 is not valid for one or two streams
@@ -896,9 +914,10 @@ void MtkWlan::rateInfo(mtk_rate_info *out) const {
         maxMcs = 7;
     }
     uint8_t nss = htActive ? apNss : 1;
-    out->ap_short_gi = sgi;
+    bool heGi = heActive;                          // HE table assumes the 0.8 us guard interval
+    out->ap_short_gi = heGi ? 0 : sgi;
     out->max_mcs = maxMcs;
-    out->max_kbps = htActive ? phyKbps(maxMcs, nss, bw, sgi) : 54000;
+    out->max_kbps = heActive ? heKbps(maxMcs, nss, bw) : htActive ? phyKbps(maxMcs, nss, bw, sgi) : 54000;
     uint32_t r = txsLast[0] & 0x3fff, mode = (r >> 6) & 0xf, idx = r & 0x3f;
     if (txsRecords && mode <= 4) {
         uint8_t txBw = (uint8_t)((txsLast[0] >> 29) & 7);
@@ -928,11 +947,11 @@ void MtkWlan::rateInfo(mtk_rate_info *out) const {
         return;
     }
     out->from_txs = 0;
-    out->phy = vhtActive ? MTK_PHY_VHT : htActive ? MTK_PHY_HT : MTK_PHY_LEGACY;
+    out->phy = heActive ? MTK_PHY_HE : vhtActive ? MTK_PHY_VHT : htActive ? MTK_PHY_HT : MTK_PHY_LEGACY;
     out->mcs = maxMcs;
     out->nss = nss;
     out->bw_mhz = (uint16_t)(20u << bw);
-    out->short_gi = sgi;
+    out->short_gi = heGi ? 0 : sgi;
     out->tx_kbps = out->max_kbps;
 }
 

@@ -418,7 +418,7 @@ private:
     uint32_t txPackets = 0, txStall = 0, txDrop = 0, txRingFull = 0, txFreeEvents = 0, txFreed = 0,
              txFreeBadVer = 0, txLostFree = 0, txFailed = 0;
     uint32_t rxPackets = 0, rxBad = 0, rxPartial = 0, rxTrans = 0, rxNonSnap = 0, rxProtected = 0,
-             rxOwn = 0, rxDropped = 0;
+             rxOwn = 0, rxDropped = 0, rxMcast = 0, rxRa = 0;
     uint32_t deauths = 0, lastDeauth = 0, rejoins = 0, keepalives = 0;
     uint32_t rxTypes[32] = {};
     uint32_t txInFlight = 0, txInFlightPeak = 0, txCapped = 0, txQueued = 0;
@@ -429,10 +429,13 @@ private:
     bool htOn = true;                          // MtkHt in Info.plist
     uint8_t maxBw = 2;                         // MtkMaxBw: 0 = 20, 1 = 40, 2 = 80 MHz
     bool apHt = false, apVht = false, htActive = false, vhtActive = false;
+    bool apHe = false, heActive = false;       // 802.11ax: AP advertises HE / the association is HE
     uint16_t apHtCap = 0;
     uint8_t apAmpdu = 0, apRxMcs[10] = {}, apHtOp = 0;
     uint32_t apVhtCap = 0;
     uint16_t apVhtRx = 0xffff, apVhtTx = 0xffff;
+    uint8_t apHeMac[6] = {}, apHePhy[11] = {}; // AP's HE Capabilities element
+    uint16_t apHeMcs80 = 0xffff, apHeMcs160 = 0xffff; // AP's RX HE-MCS/NSS map, BW80 / BW160
     uint8_t chBw = 0, chCenter = 0, apNss = 1;  // bw: 0 = 20, 1 = 40, 2 = 80 MHz (CMD_CBW_*)
     uint32_t addbaDeclined = 0, rxAmsdu = 0;
 

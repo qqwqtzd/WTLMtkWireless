@@ -537,7 +537,14 @@ int MtkWlan::hwInit(bool keepMac) {
     macInitBand(0);
     macInitBand(1);
     setNum("MtkW4DmaDcr0", rr(dmaDcr0(0)));
+    // Multicast must reach the host for IPv6 router advertisements. Clear the per-band RFCR
+    // drop-multicast/broadcast bits and publish both bands' values for comparison.
+    setNum("MtkW4Rfcr0Before", rr(rmacBase(0)));
+    setNum("MtkW4Rfcr1Before", rr(rmacBase(1)));
+    rmw(rmacBase(0), (1u << 5) | (1u << 6) | (1u << 7), 0);
+    rmw(rmacBase(1), (1u << 5) | (1u << 6) | (1u << 7), 0);
     setNum("MtkW4Rfcr", rr(rmacBase(0)));
+    setNum("MtkW4Rfcr1", rr(rmacBase(1)));
 
     // 3b. MT7927 dual-band concurrency (mt7925_mcu_set_dbdc, UNI_MBMC_SETTING).
     // DBDC must stay on, otherwise the firmware scans only 2.4GHz and 5GHz SSIDs disappear.
