@@ -56,7 +56,13 @@
 			<key>MtkRoamCooldown</key>
 			<integer>20000</integer>
 			<key>MtkRoamDelta</key>
-			<integer>12</integer>
+			<integer>8</integer>
+			<key>MtkRoamAbsRssi</key>
+			<integer>80</integer>
+			<key>MtkRoamAbsRssi24</key>
+			<integer>75</integer>
+			<key>MtkRoamPreferHe</key>
+			<true/>
 			<key>MtkRxBa</key>
 			<true/>
 			<key>MtkStallSec</key>

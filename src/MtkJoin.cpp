@@ -793,11 +793,21 @@ int MtkWlan::cmPickSaved(int *net) {
     return best;
 }
 
+// True when the BSS advertises HE (802.11ax) capabilities: a 255/35 extension element (HE Capabilities).
+bool bssHasHe(const MtkBss &b) {
+    const uint8_t *ie = b.ie, *end = b.ie + b.ieLen;
+    for (; ie + 2 <= end && ie + 2 + ie[1] <= end; ie += 2 + ie[1]) {
+        if (ie[0] == 255 && ie[1] >= 22 && ie[2] == 35) return true;
+    }
+    return false;
+}
+
 // Roaming: the best joinable BSS of the SSID we are on, only when it is a different AP clearly stronger than the
 // current one (by roamDelta, with hysteresis; a weak current AP lowers the bar so we escape it sooner). It reads the
 // fresh RSSI of both from the BSS cache (the background scan updates them). -1 = no switch worth making.
 int MtkWlan::cmPickRoam() {
     int curRssi = -127, best = -1, bestRssi = -127;
+    bool bestHe = false;
     // pass 1: the current AP's fresh signal (the scan refreshed its cache entry)
     for (int i = 0; i < nBss; i++) {
         const MtkBss &b = bss[i];
@@ -808,17 +818,28 @@ int MtkWlan::cmPickRoam() {
     }
     int delta = roamDelta < 0 ? -roamDelta : roamDelta;   // the (absolute) dB the candidate must win by
     if (curRssi <= -100) delta = 4;                       // no usable current signal: take any clearly better peer
+    // absolute threshold: while the current AP is still usable (above the threshold), never roam. This mirrors the
+    // AC's own policy (5 GHz -80 / 2.4 GHz -75) and stops two near-peers in the same room from being re-evaluated
+    // pointlessly every 15 s. A stale/unheard current entry (-127) stays eligible so a loss of beacons can roam.
+    int absThr = (tgtCh <= 14) ? roamAbsRssi24 : roamAbsRssi;
+    if (absThr && curRssi != -127 && curRssi > absThr) return -1;
     // pass 2: best different, joinable candidate to that SSID, at least delta dB stronger than the current AP. We do
     // NOT keep a wantBssid filter here (unlike cmPick): the whole point of roaming is to leave the (often weak) AP the
     // native front end happened to lock onto first and switch to a stronger peer of the same SSID. Same-SSID + a
     // different BSSID (tgtBssid excluded) + the delta/cooldown gates keep this from wandering off or ping-ponging.
+    // Within a 3 dB tie window the HE (802.11ax) AP wins, so an AX3000 peer is not passed over for an AC1200 one that
+    // happens to be 1 dB louder (roamPreferHe, default on).
     for (int i = 0; i < nBss; i++) {
         const MtkBss &b = bss[i];
         if (b.ssidLen != wantSsidLen || memcmp(b.ssid, wantSsid, wantSsidLen)) continue;
         if (!memcmp(b.bssid, tgtBssid, 6)) continue;
         if (!bssJoinable(b, wantHasPmk)) continue;
         if (b.rssi < curRssi + delta) continue;           // not clearly stronger: keep the hysteresis pole
-        if (b.rssi > bestRssi) { best = i; bestRssi = b.rssi; }
+        int s = b.rssi;
+        bool he = roamPreferHe && bssHasHe(b);
+        if (best < 0 || s > bestRssi + 3) { best = i; bestRssi = s; bestHe = he; }
+        else if (he && !bestHe && s >= bestRssi) { best = i; bestRssi = s; bestHe = true; }   // AX wins close races
+        else if (he == bestHe && s > bestRssi) { best = i; bestRssi = s; bestHe = he; }
     }
     return best;
 }
@@ -889,6 +910,7 @@ void MtkWlan::cmService() {
                 if (ticks - roamLastSwitchAt < roamCooldownTicks) return;   // still cooling down after a switch
                 int r = cmPickRoam();
                 roamEvals++;
+                setNum("MtkW5RoamEvals", roamEvals);
                 if (r >= 0) {
                     roamLastSwitchAt = ticks;
                     roams++;

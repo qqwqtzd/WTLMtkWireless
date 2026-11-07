@@ -154,11 +154,27 @@ bool MtkWlan::start(IOService *provider) {
         uint32_t v = rd->unsigned32BitValue();
         if (v >= 1 && v <= 40) roamDelta = (int8_t)v;                          // RSSI win in dB, 1..40
     }
+    // absolute roam threshold (dBm magnitude, 0 = off): only roam when the current AP is at or below this.
+    // MtkRoamAbsRssi = 80 means -80 dBm on 5 GHz; MtkRoamAbsRssi24 applies to 2.4 GHz (75 = -75 dBm), mirroring the
+    // AC's roam policy so the driver and the AC agree on "this AP is bad enough to leave".
+    for (int band = 0; band < 2; band++) {
+        OSNumber *ra = OSDynamicCast(OSNumber, getProperty(band ? "MtkRoamAbsRssi24" : "MtkRoamAbsRssi"));
+        if (!ra) continue;
+        int32_t v = (int32_t)ra->unsigned32BitValue();
+        if (v >= 1 && v <= 100) {
+            int8_t *dst = band ? &roamAbsRssi24 : &roamAbsRssi;
+            *dst = (int8_t)(-v);
+        }
+    }
+    if (OSBoolean *ph = OSDynamicCast(OSBoolean, getProperty("MtkRoamPreferHe"))) roamPreferHe = ph->isTrue();
     if (OSNumber *rc = OSDynamicCast(OSNumber, getProperty("MtkRoamCooldown"))) {
         if (rc->unsigned32BitValue() >= 100 && rc->unsigned32BitValue() <= 60000) roamCooldownTicks = rc->unsigned32BitValue();
     }
     setNum("MtkRoam", roamOn ? 1 : 0);
     setNum("MtkRoamDelta", (uint32_t)roamDelta);
+    setNum("MtkRoamAbsRssi", (uint32_t)(roamAbsRssi ? (uint32_t)(-roamAbsRssi) : 0));
+    setNum("MtkRoamAbsRssi24", (uint32_t)(roamAbsRssi24 ? (uint32_t)(-roamAbsRssi24) : 0));
+    setNum("MtkRoamPreferHe", roamPreferHe ? 1 : 0);
     setNum("MtkRoamCooldown", roamCooldownTicks);
     // link supervisor (I-096): seconds of a dead link before it acts, 0 = off; boot-arg mtkstall= overrides
     uint32_t stallSec = 8;
