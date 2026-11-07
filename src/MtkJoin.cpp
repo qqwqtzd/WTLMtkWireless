@@ -797,8 +797,6 @@ int MtkWlan::cmPickSaved(int *net) {
 // current one (by roamDelta, with hysteresis; a weak current AP lowers the bar so we escape it sooner). It reads the
 // fresh RSSI of both from the BSS cache (the background scan updates them). -1 = no switch worth making.
 int MtkWlan::cmPickRoam() {
-    bool bssidSet = false;
-    for (int i = 0; i < 6; i++) if (wantBssid[i]) bssidSet = true;
     int curRssi = -127, best = -1, bestRssi = -127;
     // pass 1: the current AP's fresh signal (the scan refreshed its cache entry)
     for (int i = 0; i < nBss; i++) {
@@ -810,11 +808,13 @@ int MtkWlan::cmPickRoam() {
     }
     int delta = roamDelta < 0 ? -roamDelta : roamDelta;   // the (absolute) dB the candidate must win by
     if (curRssi <= -100) delta = 4;                       // no usable current signal: take any clearly better peer
-    // pass 2: best different, joinable candidate to that SSID, at least delta dB stronger than the current AP
+    // pass 2: best different, joinable candidate to that SSID, at least delta dB stronger than the current AP. We do
+    // NOT keep a wantBssid filter here (unlike cmPick): the whole point of roaming is to leave the (often weak) AP the
+    // native front end happened to lock onto first and switch to a stronger peer of the same SSID. Same-SSID + a
+    // different BSSID (tgtBssid excluded) + the delta/cooldown gates keep this from wandering off or ping-ponging.
     for (int i = 0; i < nBss; i++) {
         const MtkBss &b = bss[i];
         if (b.ssidLen != wantSsidLen || memcmp(b.ssid, wantSsid, wantSsidLen)) continue;
-        if (bssidSet && memcmp(b.bssid, wantBssid, 6)) continue;
         if (!memcmp(b.bssid, tgtBssid, 6)) continue;
         if (!bssJoinable(b, wantHasPmk)) continue;
         if (b.rssi < curRssi + delta) continue;           // not clearly stronger: keep the hysteresis pole

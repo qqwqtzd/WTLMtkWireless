@@ -51,6 +51,12 @@
 			<integer>3</integer>
 			<key>MtkPower</key>
 			<true/>
+			<key>MtkRoam</key>
+			<true/>
+			<key>MtkRoamCooldown</key>
+			<integer>20000</integer>
+			<key>MtkRoamDelta</key>
+			<integer>12</integer>
 			<key>MtkRxBa</key>
 			<true/>
 			<key>MtkStallSec</key>
