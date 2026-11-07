@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 (2026-11-07)
+
+- Autonomous Wi-Fi roaming (multi-AP, same SSID): while associated, the driver re-scans every 15 s and, when it finds another BSS of the SSID clearly stronger than the current one (by `MtkRoamDelta`, default 12 dB; lowered to 4 dB when the current signal is unusable), it tears down and rejoins the stronger peer. A switch cooldown (`MtkRoamCooldown`, default 20 s) stops ping-pong between two near-equal peers.
+- Roaming is off by default (no change in behaviour unless enabled). Enable with `MtkRoam` = true in Info.plist or the `mtkroam=1` boot argument. Counters `MtkW5Roam` (switches), `MtkRoamDelta`, `MtkRoamCooldown` expose state in the IORegistry; each switch logs `W5 roam <ssid> -> ch <n> (rssi <r>)`.
+- Roaming deliberately ignores `wantBssid`: the native front end locks onto whichever candidate it was handed first, which otherwise made roaming never fire. Same-SSID + a different BSSID + the delta/cooldown gates keep the pick from wandering or ping-ponging (`cmPickRoam` no longer filters by the locked BSSID).
+- This is RSSI selection, not 802.11r fast transition (the MT7925/7927 firmware and macOS's system layer have no driver-level FT path). Tested on the author's desktop with two same-SSID APs: `MtkW5Roam` reached 2 and the Wi-Fi link stayed up.
+
 ## 0.12.1 (2026-10-23)
 
 - Core API version 5 for the native front end ([WTLWifiMenu](https://github.com/watchthelight-labs/WTLWifiMenu) 0.4.13):
