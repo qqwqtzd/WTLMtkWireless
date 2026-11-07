@@ -802,6 +802,29 @@ bool bssHasHe(const MtkBss &b) {
     return false;
 }
 
+// System roam profile -> our roaming parameters (#4, 2026-11-07). The front end parses
+// the ROAM_PROFILE the Family/airportd hands down and publishes MtkRoamAdvise
+// {t5,t24,delta} on this IOService; we consume it once right before each roam pass so
+// the system's own thresholds (AC-power profile delta/RSSI lines) drive our switches
+// too, keeping the plist values as the fallback.
+void MtkWlan::applyRoamAdvise() {
+    OSDictionary *ad = OSDynamicCast(OSDictionary, getProperty("MtkRoamAdvise"));
+    if (!ad) return;
+    removeProperty("MtkRoamAdvise");                       // one-shot: only latest advice applies
+    OSNumber *t5  = OSDynamicCast(OSNumber, ad->getObject("t5"));
+    OSNumber *t24 = OSDynamicCast(OSNumber, ad->getObject("t24"));
+    OSNumber *dl  = OSDynamicCast(OSNumber, ad->getObject("delta"));
+    bool any = false;
+    if (t5) { uint32_t v = t5->unsigned32BitValue(); if (v >= 20 && v <= 100) { roamAbsRssi = (int8_t)(-v); any = true; } }
+    if (t24) { uint32_t v = t24->unsigned32BitValue(); if (v >= 20 && v <= 100) { roamAbsRssi24 = (int8_t)(-v); any = true; } }
+    if (dl) { uint32_t v = dl->unsigned32BitValue(); if (v >= 1 && v <= 40) { roamDelta = (int8_t)v; any = true; } }
+    if (any) {
+        setNum("MtkRoamAdvise5", roamAbsRssi ? (uint32_t)(-roamAbsRssi) : 0);
+        setNum("MtkRoamAdvise24", roamAbsRssi24 ? (uint32_t)(-roamAbsRssi24) : 0);
+        setNum("MtkRoamAdviseDelta", (uint32_t)roamDelta);
+    }
+}
+
 // Roaming: the best joinable BSS of the SSID we are on, only when it is a different AP clearly stronger than the
 // current one (by roamDelta, with hysteresis; a weak current AP lowers the bar so we escape it sooner). It reads the
 // fresh RSSI of both from the BSS cache (the background scan updates them). -1 = no switch worth making.
@@ -901,6 +924,7 @@ void MtkWlan::cmService() {
         // and, once a scan settles, switch to a clearly stronger same-SSID AP (a short leave+join). Cooldown
         // throttles the switches so a walking user does not ping-pong between two near peers.
         else if (roamOn && wantActive && !onFallback && !disconnectPending) {
+            applyRoamAdvise();                            // system roam profile -> our params (2026-11-07, #4)
             if ((int32_t)(ticks - roamNextScanAt) >= 0 && ticks - roamLastSwitchAt >= roamCooldownTicks) {
                 roamNextScanAt = ticks + ROAM_RESCAN_TICKS;
                 scanWanted = true;                       // refresh the BSS cache (incl. the current AP's RSSI)

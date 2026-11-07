@@ -181,6 +181,7 @@ private:
     int cmPickOpen();
     int cmPickSaved(int *net);
     int cmPickRoam();                         // best same-SSID candidate that beats the current AP by roamDelta, or -1
+    void applyRoamAdvise();                   // consume front-end MtkRoamAdvise {t5,t24,delta} before a roam pass
     void cmResult(uint32_t result);
     int coreScan();
     int coreJoin(const mtk_join_params *p);
