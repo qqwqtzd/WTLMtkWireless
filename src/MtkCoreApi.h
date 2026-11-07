@@ -56,7 +56,7 @@ struct mtk_link_info {
     uint32_t enabled;           // front end enabled (set_enabled)
     uint8_t bssid[6];
     uint8_t channel;            // primary channel
-    uint8_t bw;                 // 0 = 20, 1 = 40, 2 = 80 MHz
+    uint8_t bw;                 // 0 = 20, 1 = 40, 2 = 80, 3 = 160 MHz
     uint8_t center;             // center channel
     uint8_t nss;                // spatial streams in use
     uint8_t ht, vht;            // HT / VHT association
