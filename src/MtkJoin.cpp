@@ -30,6 +30,7 @@ constexpr int JOIN_TRIES = 4;
 constexpr uint32_t CM_PERIOD_TICKS = 100, CM_IDLE_RESCAN_TICKS = 15000, CM_WANT_RESCAN_TICKS = 5000,
                    CM_WANT_RESCAN_SLOW_TICKS = 15000, CM_WANT_FALLBACK_TICKS = 30000, CM_USER_SCAN_GRACE_TICKS = 10000,
                    CM_BOOT_GRACE_TICKS = 20000, CM_ONFALLBACK_RESCAN_TICKS = 30000, CM_BACKOFF_MAX_TICKS = 60000;
+constexpr uint32_t ROAM_RESCAN_TICKS = 15000;             // roam: background-scan interval while associated (15 s)
 constexpr uint16_t REASON_LEAVING = 3;
 
 // printable copy of an SSID for properties and log lines
@@ -792,6 +793,36 @@ int MtkWlan::cmPickSaved(int *net) {
     return best;
 }
 
+// Roaming: the best joinable BSS of the SSID we are on, only when it is a different AP clearly stronger than the
+// current one (by roamDelta, with hysteresis; a weak current AP lowers the bar so we escape it sooner). It reads the
+// fresh RSSI of both from the BSS cache (the background scan updates them). -1 = no switch worth making.
+int MtkWlan::cmPickRoam() {
+    bool bssidSet = false;
+    for (int i = 0; i < 6; i++) if (wantBssid[i]) bssidSet = true;
+    int curRssi = -127, best = -1, bestRssi = -127;
+    // pass 1: the current AP's fresh signal (the scan refreshed its cache entry)
+    for (int i = 0; i < nBss; i++) {
+        const MtkBss &b = bss[i];
+        if (memcmp(b.bssid, tgtBssid, 6)) continue;
+        if (b.ssidLen != wantSsidLen || memcmp(b.ssid, wantSsid, wantSsidLen)) continue;
+        curRssi = b.rssi;
+        break;
+    }
+    int delta = roamDelta < 0 ? -roamDelta : roamDelta;   // the (absolute) dB the candidate must win by
+    if (curRssi <= -100) delta = 4;                       // no usable current signal: take any clearly better peer
+    // pass 2: best different, joinable candidate to that SSID, at least delta dB stronger than the current AP
+    for (int i = 0; i < nBss; i++) {
+        const MtkBss &b = bss[i];
+        if (b.ssidLen != wantSsidLen || memcmp(b.ssid, wantSsid, wantSsidLen)) continue;
+        if (bssidSet && memcmp(b.bssid, wantBssid, 6)) continue;
+        if (!memcmp(b.bssid, tgtBssid, 6)) continue;
+        if (!bssJoinable(b, wantHasPmk)) continue;
+        if (b.rssi < curRssi + delta) continue;           // not clearly stronger: keep the hysteresis pole
+        if (b.rssi > bestRssi) { best = i; bestRssi = b.rssi; }
+    }
+    return best;
+}
+
 // Outcome of a join: reset or grow the backoff (5, 10, 20, 40, 60 s), tell a v2 front end
 void MtkWlan::cmResult(uint32_t result) {
     lastResult = result;
@@ -844,6 +875,34 @@ void MtkWlan::cmService() {
                 }
             }
             if (ticks - cmLastScanAt >= CM_ONFALLBACK_RESCAN_TICKS) scanWanted = true;
+        }
+        // roaming (roamOn, a real wanted network, not the fallback): background-scan on a timer while associated
+        // and, once a scan settles, switch to a clearly stronger same-SSID AP (a short leave+join). Cooldown
+        // throttles the switches so a walking user does not ping-pong between two near peers.
+        else if (roamOn && wantActive && !onFallback && !disconnectPending) {
+            if ((int32_t)(ticks - roamNextScanAt) >= 0 && ticks - roamLastSwitchAt >= roamCooldownTicks) {
+                roamNextScanAt = ticks + ROAM_RESCAN_TICKS;
+                scanWanted = true;                       // refresh the BSS cache (incl. the current AP's RSSI)
+            }
+            if ((int32_t)(scanFinishedAt - cmLastPickAt) > 0) {   // a background scan just settled
+                cmLastPickAt = ticks;
+                if (ticks - roamLastSwitchAt < roamCooldownTicks) return;   // still cooling down after a switch
+                int r = cmPickRoam();
+                roamEvals++;
+                if (r >= 0) {
+                    roamLastSwitchAt = ticks;
+                    roams++;
+                    char shown[33];
+                    safeSsid(bss[r].ssid, bss[r].ssidLen, shown);
+                    char t[80];
+                    snprintf(t, sizeof(t), "W5 roam %s -> ch %u (rssi %d)", shown, bss[r].ch, bss[r].rssi);
+                    step(t);
+                    setNum("MtkW5Roam", roams);
+                    joinTeardown(REASON_LEAVING);
+                    joinStart(r);
+                    return;
+                }
+            }
         }
         return;
     }

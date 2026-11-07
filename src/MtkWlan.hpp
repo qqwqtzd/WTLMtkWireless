@@ -180,6 +180,7 @@ private:
     int cmPick();
     int cmPickOpen();
     int cmPickSaved(int *net);
+    int cmPickRoam();                         // best same-SSID candidate that beats the current AP by roamDelta, or -1
     void cmResult(uint32_t result);
     int coreScan();
     int coreJoin(const mtk_join_params *p);
@@ -371,6 +372,15 @@ private:
     uint8_t cmLastBssid[6] = {};
     bool cmKick = false, switchPending = false, disconnectPending = false, rejoinPending = false;
     bool onFallback = false;                   // the current join is the open fallback, not the wanted network
+    // roaming (multi-AP same SSID, default off): periodically background-scan while associated and, when a clearly
+    // better joinable AP of the same SSID appears, leave and rejoin it. The switch is a short leave+join (the
+    // firmware joins one station profile), not an 802.11r FT seamless transition.
+    bool roamOn = false;                       // MtkRoam / boot-arg mtkroam=1
+    int8_t roamDelta = 12;                     // dB a candidate must beat the current AP by (MtkRoamDelta), hysteresis
+    uint32_t roamNextScanAt = 0;              // next tick to ask for a background scan while associated
+    uint32_t roamLastSwitchAt = 0;             // tick of the last roam switch (cooldown)
+    uint32_t roamCooldownTicks = 20000;        // 20 s minimum between switches (default, MtkRoamCooldown)
+    uint32_t roams = 0, roamEvals = 0;         // switches performed / candidate evaluations
     // the RX path only flags a deauth / disassoc; the tick tears the link down
     bool deauthPending = false;
     uint16_t deauthPendingReason = 0;

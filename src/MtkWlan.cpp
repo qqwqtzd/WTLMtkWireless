@@ -144,6 +144,22 @@ bool MtkWlan::start(IOService *provider) {
         setNum("MtkAutoNetworkCount", nAutoNets);
     }
     autoOpen = autoAllowed();
+    // roaming (multi-AP same SSID, default off): MtkRoam true, or boot-arg mtkroam=1. The RSSI hysteresis and the
+    // switch cooldown are tameable via MtkRoamDelta (dB, 1..40) / MtkRoamCooldown (ticks = 100 ms units).
+    if (OSBoolean *rm = OSDynamicCast(OSBoolean, getProperty("MtkRoam"))) roamOn = rm->isTrue();
+    uint32_t roamArg = 0;
+    PE_parse_boot_argn("mtkroam", &roamArg, sizeof(roamArg));
+    if (roamArg) roamOn = true;
+    if (OSNumber *rd = OSDynamicCast(OSNumber, getProperty("MtkRoamDelta"))) {
+        uint32_t v = rd->unsigned32BitValue();
+        if (v >= 1 && v <= 40) roamDelta = (int8_t)v;                          // RSSI win in dB, 1..40
+    }
+    if (OSNumber *rc = OSDynamicCast(OSNumber, getProperty("MtkRoamCooldown"))) {
+        if (rc->unsigned32BitValue() >= 100 && rc->unsigned32BitValue() <= 60000) roamCooldownTicks = rc->unsigned32BitValue();
+    }
+    setNum("MtkRoam", roamOn ? 1 : 0);
+    setNum("MtkRoamDelta", (uint32_t)roamDelta);
+    setNum("MtkRoamCooldown", roamCooldownTicks);
     // link supervisor (I-096): seconds of a dead link before it acts, 0 = off; boot-arg mtkstall= overrides
     uint32_t stallSec = 8;
     if (OSNumber *n = OSDynamicCast(OSNumber, getProperty("MtkStallSec"))) stallSec = n->unsigned32BitValue();
