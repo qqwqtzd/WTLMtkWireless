@@ -15,7 +15,7 @@ TARGET := -target x86_64-apple-macos10.15
 RES    := $(shell clang -print-resource-dir)/include
 
 SRCS := src/MtkWlan.cpp src/MtkRegs.cpp src/MtkDma.cpp src/MtkFw.cpp src/MtkScan.cpp src/MtkJoin.cpp src/MtkSec.cpp \
-        src/MtkNet.cpp src/MtkBa.cpp src/MtkPower.cpp src/MtkWlanEth.cpp src/MtkUserClient.cpp \
+        src/MtkNet.cpp src/MtkBa.cpp src/MtkAwdlHost.cpp src/MtkPower.cpp src/MtkWlanEth.cpp src/MtkUserClient.cpp \
         src/MtkCrypto.c src/MtkSupp.c src/MtkSuper.c out/gen/MtkFirmware.c
 
 KFLAGS := $(TARGET) -mkernel -fapple-kext -nostdinc -fno-builtin -fno-common -fno-stack-protector \

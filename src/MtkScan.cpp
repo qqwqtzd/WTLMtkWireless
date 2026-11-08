@@ -586,6 +586,8 @@ int MtkWlan::hwInit(bool keepMac) {
     setNum("MtkW4RfcrAfterFilter", rr(rmacBase(0)));
     if (fwDead) { step("W4 fail: firmware stopped answering during hardware init"); return -1; }
     step("W4 pass: station ready (MAC, domain, power), scanning from the tick");
+    // AWDL host-side window probe (P1): one shot, 30 s after the hardware is up.
+    awdlProbeAt = ticks + 30000;
     return 0;
 }
 

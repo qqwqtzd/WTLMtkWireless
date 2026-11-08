@@ -559,6 +559,7 @@ void MtkWlan::tick() {
     secService();
     joinService();
     scanService();
+    awdlService();
     cmService();
     frontEndService();
     stallService();

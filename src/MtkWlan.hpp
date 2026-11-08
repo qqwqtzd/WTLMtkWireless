@@ -213,6 +213,10 @@ private:
     bool countryPending = false;
     void countryService();
     int roc(bool acquire);
+    // AWDL host-side window probe (P1)
+    int awdlRoc(uint8_t ch, uint32_t ms);
+    int awdlRocAbort();
+    void awdlService();
     void hwPrep();
     uint8_t *assocIes(uint8_t *p, bool ht);
 
@@ -349,6 +353,9 @@ private:
     uint32_t mgmtLen = 0;
     volatile bool rocGrant = false;
     uint8_t rocStatus = 0xff, rocTok = 0;
+    // AWDL window probe state (P1): 0 idle, 1 parked, 2 sent, 3 done
+    uint8_t awdlState = 0, awdlRocTok = 0;
+    uint32_t awdlProbeAt = 0, awdlDeadline = 0;
     bool linkUp = false;                       // associated (802.11)
     bool portOpen = false;                     // data allowed: open network, or WPA2 keys installed
     bool joinedOnce = false;
